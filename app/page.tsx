@@ -16,6 +16,7 @@ import { SessionSummaryModal } from "@/components/SessionSummaryModal";
 import { SessionHistoryPanel } from "@/components/SessionHistoryPanel";
 import { VictorPanel } from "@/components/VictorPanel";
 import { PostureTrendChart } from "@/components/PostureTrendChart";
+import { PostureHeatmapTimeline } from "@/components/PostureHeatmapTimeline";
 import { CalibrationComparisonCard } from "@/components/CalibrationComparisonCard";
 import { PoseMetricsCard } from "@/components/PoseMetricsCard";
 import { usePostureMonitor } from "@/hooks/usePostureMonitor";
@@ -36,6 +37,11 @@ export default function HomePage() {
   useEffect(() => {
     arduino.sendState(monitor.state);
   }, [arduino.sendState, monitor.state]);
+
+  useEffect(() => {
+    if (!monitor.alertBanner) return;
+    void arduino.triggerBreak();
+  }, [arduino.triggerBreak, monitor.alertBanner]);
 
   useEffect(() => {
     if (authenticated) {
@@ -126,9 +132,11 @@ export default function HomePage() {
             onCalibrate={monitor.beginCalibration}
             canCalibrate={authenticated}
             warningBanner={monitor.alertBanner}
+            overlayMetrics={monitor.overlayMetrics}
           />
 
           <PostureTrendChart points={monitor.postureTrend} />
+          <PostureHeatmapTimeline timeline={monitor.timeline} />
 
           <SessionInsights
             good={monitor.insights.good}

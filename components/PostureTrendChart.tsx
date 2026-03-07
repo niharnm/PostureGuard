@@ -13,7 +13,7 @@ export function PostureTrendChart({ points }: Props) {
   return (
     <section className="panel rounded-3xl p-5 sm:p-6">
       <div className="mb-4 flex items-center justify-between gap-3">
-        <h2 className="text-lg font-semibold text-white">Posture Trend</h2>
+        <h2 className="text-lg font-semibold text-white">Posture Trend Graph</h2>
         <p className="text-xs uppercase tracking-[0.2em] text-slate-400">Live every 2s</p>
       </div>
 

@@ -22,7 +22,7 @@ It now includes:
 9. Session tracking + session summary
 10. Session history trend dashboard
 11. Victor chat assistant using structured app posture/session context
-12. Optional Arduino alerts (Web Serial)
+12. Optional Arduino integration (Web Serial protocol: GOOD/WARN/BAD/BREAK)
 
 ## Tech Stack
 
@@ -31,7 +31,7 @@ It now includes:
 - Tailwind CSS
 - Framer Motion
 - NextAuth
-- Prisma + SQLite
+- Prisma + PostgreSQL
 - MediaPipe Pose (`@mediapipe/tasks-vision`)
 - OpenRouter-compatible chat completion API
 
@@ -87,7 +87,7 @@ npm install
 Create `.env` from `.env.example` and set values:
 
 ```env
-DATABASE_URL="file:./dev.db"
+DATABASE_URL="postgresql://USER:PASSWORD@HOST:5432/DB_NAME?schema=public"
 NEXTAUTH_URL="http://localhost:3000"
 NEXTAUTH_SECRET="your-long-random-secret"
 GOOGLE_CLIENT_ID=""
@@ -97,6 +97,8 @@ OPENROUTER_MODEL="openai/gpt-4o-mini"
 ```
 
 Notes:
+- Production deployments (including Vercel) must use PostgreSQL. SQLite local files are not reliable for serverless functions.
+- For local development, use a Postgres instance (Docker, Neon, Supabase, Railway, etc.) and point `DATABASE_URL` to it.
 - Leave Google vars empty if you only want email/password auth.
 - `OPENROUTER_API_KEY` is required for Victor responses.
 - API keys are server-side only (`/api/victor`), never exposed in frontend code.
@@ -115,6 +117,19 @@ npm run dev
 ```
 
 Open [http://localhost:3000](http://localhost:3000)
+
+## Vercel Deployment (PostgreSQL Required)
+
+1. Provision a PostgreSQL database (Neon/Supabase/Railway/managed Postgres).
+2. In Vercel Project Settings -> Environment Variables, set:
+   - `DATABASE_URL` to your Postgres connection string
+   - `NEXTAUTH_URL` to your production domain (for example: `https://your-app.vercel.app`)
+   - `NEXTAUTH_SECRET`
+   - any optional OAuth/OpenRouter keys you use
+3. Push schema to the production database:
+   - locally with production `DATABASE_URL`: `npm run prisma:generate && npm run db:push`
+4. Deploy to Vercel.
+5. After deploy, verify signup/login and session persistence in production.
 
 ## Posture Accuracy Improvements
 
@@ -170,6 +185,21 @@ Victor guardrails:
 - Avoids medical diagnosis
 - Uses structured app context passed from frontend
 
+## Arduino Protocol (Official Firmware)
+
+PostureGuard's web app is aligned to the official Arduino firmware in [`arduino/postureguard.ino`](arduino/postureguard.ino).
+
+Serial transport contract:
+- Baud rate: `9600`
+- Message framing: newline-terminated ASCII commands
+- Accepted commands: `GOOD`, `WARN`, `BAD`, `BREAK`
+
+Runtime behavior:
+- App sends `GOOD` / `WARN` / `BAD` whenever posture state changes.
+- App sends `BREAK` when prolonged BAD posture triggers the in-app warning banner.
+- Firmware handles RGB fade transitions, BAD buzzer reminders, LCD messaging, and BREAK breathing-purple mode.
+- `NO_PERSON` is not sent to hardware.
+
 ## Validation / Demo Test Plan
 
 ### A. Calibration quality test
@@ -221,7 +251,8 @@ Without Arduino:
 
 With Arduino:
 - Connect via Web Serial
-- Verify posture state messages still send during live tracking
+- Verify posture state messages (`GOOD/WARN/BAD`) still send during live tracking
+- Hold BAD posture until the prolonged-warning banner appears; verify `BREAK` behavior on device
 
 ## Notes
 

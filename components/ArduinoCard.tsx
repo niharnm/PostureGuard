@@ -21,8 +21,8 @@ export function ArduinoCard({
         <div>
           <h2 className="text-xl font-semibold text-white">Optional Arduino Hardware Feedback</h2>
           <p className="mt-2 max-w-2xl text-sm text-slate-300">
-            The app works fully without hardware. If connected, PostureGuard sends GOOD / WARN / BAD via
-            Web Serial so Arduino can trigger LEDs and buzzer.
+            The app works fully without hardware. If connected, PostureGuard sends GOOD / WARN / BAD posture states
+            and BREAK prompts via Web Serial (9600 baud, newline-terminated).
           </p>
         </div>
         <div className="flex gap-3">
@@ -75,7 +75,8 @@ export function ArduinoCard({
       <ul className="mt-4 space-y-2 text-sm text-slate-300">
         <li>GOOD {"->"} Green LED</li>
         <li>WARN {"->"} Yellow LED</li>
-        <li>BAD {"->"} Red LED + buzzer pulse</li>
+        <li>BAD {"->"} Red LED + buzzer pulse, then repeated reminder beeps while BAD persists</li>
+        <li>BREAK {"->"} LCD "Stand & stretch" + breathing purple LEDs</li>
       </ul>
     </section>
   );

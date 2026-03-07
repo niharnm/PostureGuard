@@ -43,7 +43,7 @@ export function SessionSummaryCard({ summary }: Props) {
   return (
     <div className="rounded-3xl border border-slate-600/60 bg-slate-950/95 p-6 shadow-2xl">
       <div className="mb-5 flex items-center justify-between gap-3">
-        <h3 className="text-xl font-semibold text-white">Session Summary Report</h3>
+        <h3 className="text-xl font-semibold text-white">Session Report</h3>
         <button
           onClick={handleCopy}
           className="rounded-lg border border-cyan-300/35 bg-cyan-300/10 px-3 py-1.5 text-xs font-semibold tracking-[0.08em] text-cyan-100"

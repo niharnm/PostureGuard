@@ -1,6 +1,7 @@
 "use client";
 
 import { HeroSection } from "@/components/landing/HeroSection";
+import { ScrollShowcaseSection } from "@/components/landing/ScrollShowcaseSection";
 import { ProductOverviewSection } from "@/components/landing/ProductOverviewSection";
 import { FeatureSection } from "@/components/landing/FeatureSection";
 import { DemoSection } from "@/components/landing/DemoSection";
@@ -19,6 +20,7 @@ export function LandingPage({ onTryDemo }: Props) {
     <main className="min-h-screen landing-gradient">
       <div className="mx-auto flex w-full max-w-7xl flex-col gap-6 px-4 py-6 sm:gap-8 sm:px-6 sm:py-10 lg:px-8">
         <HeroSection onTryDemo={onTryDemo} />
+        <ScrollShowcaseSection />
         <ProductOverviewSection />
         <FeatureSection />
         <DemoSection onTryDemo={onTryDemo} />

@@ -1,5 +1,7 @@
 import { PostureState } from "@/lib/types";
 
+export type ArduinoSignal = "GOOD" | "WARN" | "BAD" | "BREAK";
+
 export type ArduinoConnection = {
   port: SerialPort;
   writer: WritableStreamDefaultWriter<Uint8Array>;
@@ -33,5 +35,11 @@ export async function sendPostureToArduino(
 
   const encoder = new TextEncoder();
   const payload = encoder.encode(`${state}\n`);
+  await connection.writer.write(payload);
+}
+
+export async function sendBreakToArduino(connection: ArduinoConnection) {
+  const encoder = new TextEncoder();
+  const payload = encoder.encode("BREAK\n");
   await connection.writer.write(payload);
 }

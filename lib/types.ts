@@ -25,6 +25,7 @@ export type TrendPoint = {
 export type SnapshotMetrics = {
   headAlignmentDeg: number;
   shoulderBalanceDeg: number;
+  forwardHeadDistancePx: number;
 };
 
 export type PosePoint = {

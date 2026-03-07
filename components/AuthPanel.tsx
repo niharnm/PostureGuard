@@ -40,8 +40,12 @@ export function AuthPanel() {
         });
 
         if (!signup.ok) {
-          const data = await signup.json().catch(() => ({}));
-          throw new Error(data.error || "Unable to create account.");
+          const data = await signup.json().catch(() => null);
+          const message =
+            typeof data?.error === "string" && data.error.trim()
+              ? data.error
+              : `Unable to create account. (HTTP ${signup.status})`;
+          throw new Error(message);
         }
       }
 

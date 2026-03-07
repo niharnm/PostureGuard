@@ -6,9 +6,11 @@ import {
   CalibrationState,
   PostureDebugData,
   PostureMetrics,
+  SnapshotMetrics,
   PostureState
 } from "@/lib/types";
 import { useState } from "react";
+import { PoseOverlayCanvas } from "@/components/PoseOverlayCanvas";
 
 type Props = {
   videoRef: React.RefObject<HTMLVideoElement | null>;
@@ -34,6 +36,7 @@ type Props = {
   onCalibrate: () => void;
   canCalibrate: boolean;
   warningBanner: string | null;
+  overlayMetrics: SnapshotMetrics;
 };
 
 function metricValue(value: number) {
@@ -81,7 +84,8 @@ export function LiveDashboard({
   debugData,
   onCalibrate,
   canCalibrate,
-  warningBanner
+  warningBanner,
+  overlayMetrics
 }: Props) {
   const [showDebug, setShowDebug] = useState(false);
   const statusText = error
@@ -102,7 +106,7 @@ export function LiveDashboard({
     <section id="dashboard" className="grid gap-6 lg:grid-cols-[1.35fr_1fr]">
       <div className="panel relative overflow-hidden rounded-3xl p-4 shadow-glow sm:p-6">
         <div className="mb-4 flex items-center justify-between gap-3">
-          <h2 className="text-lg font-semibold text-white sm:text-xl">Live Posture Detection</h2>
+          <h2 className="text-lg font-semibold text-white sm:text-xl">Skeleton Visualization</h2>
           <div className="flex items-center gap-2">
             <StatusBadge state={state} />
             <span
@@ -121,7 +125,10 @@ export function LiveDashboard({
         </div>
         <div className="relative overflow-hidden rounded-2xl border border-slate-600/35 bg-black/45">
           <video ref={videoRef} autoPlay muted playsInline className="h-auto w-full scale-x-[-1]" />
-          <canvas ref={canvasRef} className="pointer-events-none absolute inset-0 h-full w-full scale-x-[-1]" />
+          <PoseOverlayCanvas
+            canvasRef={canvasRef}
+            className="pointer-events-none absolute inset-0 h-full w-full scale-x-[-1]"
+          />
           <div className="absolute left-3 top-3 rounded-lg bg-slate-900/80 px-3 py-2 text-xs text-slate-200">
             {statusText}
           </div>
@@ -132,23 +139,17 @@ export function LiveDashboard({
                 <h3 className="mt-2 text-base font-semibold">
                   {calibrationPhase === "INSTRUCTIONS"
                     ? "Sit in your straight, ideal posture"
-                    : calibrationPhase === "COUNTDOWN"
-                      ? "Hold steady, scan starts now"
-                      : calibrationPhase === "SCANNING"
-                        ? "Scanning posture baseline..."
-                        : "Finalizing baseline"}
+                    : calibrationPhase === "SCANNING"
+                      ? "Scanning posture baseline..."
+                      : "Finalizing baseline"}
                 </h3>
                 <p className="mt-1 text-xs text-cyan-100/85">
-                  Keep your shoulders level and your head upright while staying still.
+                  Keep shoulders level and head upright. Hold still for a full 10-second scan.
                 </p>
-                {calibrationPhase === "COUNTDOWN" ? (
-                  <div className="mt-4 text-center font-[var(--font-jetbrains)] text-5xl font-bold text-cyan-100">
-                    {calibrationCountdown ?? 1}
-                  </div>
-                ) : null}
                 {calibrationPhase === "SCANNING" ? (
                   <div className="mt-4 space-y-2">
-                    <p className="text-xs text-cyan-100">Scanning posture baseline... {calibrationProgress}%</p>
+                    <p className="text-xs text-cyan-100">Time remaining: {calibrationCountdown ?? 0}s</p>
+                    <p className="text-xs text-cyan-100/90">Scanning posture baseline... {calibrationProgress}%</p>
                     <div className="h-2 overflow-hidden rounded bg-slate-700">
                       <div className="h-full bg-cyan-300 transition-all duration-200" style={{ width: `${calibrationProgress}%` }} />
                     </div>
@@ -162,6 +163,24 @@ export function LiveDashboard({
             </div>
           ) : null}
         </div>
+        <div className="mt-3 grid gap-2 sm:grid-cols-3">
+          <div className="rounded-lg border border-slate-700/45 bg-slate-900/55 px-3 py-2">
+            <p className="text-[11px] uppercase tracking-[0.14em] text-slate-400">Head Tilt</p>
+            <p className="font-[var(--font-jetbrains)] text-base text-white">{overlayMetrics.headAlignmentDeg.toFixed(1)} deg</p>
+          </div>
+          <div className="rounded-lg border border-slate-700/45 bg-slate-900/55 px-3 py-2">
+            <p className="text-[11px] uppercase tracking-[0.14em] text-slate-400">Shoulder Imbalance</p>
+            <p className="font-[var(--font-jetbrains)] text-base text-white">
+              {overlayMetrics.shoulderBalanceDeg.toFixed(1)} deg
+            </p>
+          </div>
+          <div className="rounded-lg border border-slate-700/45 bg-slate-900/55 px-3 py-2">
+            <p className="text-[11px] uppercase tracking-[0.14em] text-slate-400">Forward Head Distance</p>
+            <p className="font-[var(--font-jetbrains)] text-base text-white">
+              {Math.round(overlayMetrics.forwardHeadDistancePx)} px
+            </p>
+          </div>
+        </div>
         <p className="mt-3 text-xs text-slate-400">
           Model: {modelStatus} | Tracking Confidence: {(trackingConfidence * 100).toFixed(0)}% | Calibration Status:{" "}
           {calibrationStatus === "CALIBRATED"
@@ -172,6 +191,9 @@ export function LiveDashboard({
         </p>
         {calibratedAt ? (
           <p className="mt-1 text-xs text-emerald-200">Personal baseline saved: {new Date(calibratedAt).toLocaleString()}</p>
+        ) : null}
+        {calibrationStatus === "CALIBRATED" ? (
+          <p className="mt-1 text-xs text-slate-300">Baseline captured from your current camera position.</p>
         ) : null}
         {calibrationQuality && calibrationStatus === "CALIBRATED" ? (
           <p className="mt-1 text-xs text-slate-300">

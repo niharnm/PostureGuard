@@ -1,6 +1,57 @@
 import { prisma } from "@/lib/prisma";
+import { Prisma } from "@prisma/client";
 import { hash } from "bcryptjs";
 import { NextResponse } from "next/server";
+
+function mapSignupError(error: unknown): { status: number; message: string; details?: string } {
+  const isDev = process.env.NODE_ENV !== "production";
+
+  if (error instanceof SyntaxError) {
+    return {
+      status: 400,
+      message: "Invalid request payload."
+    };
+  }
+
+  if (error instanceof Prisma.PrismaClientKnownRequestError) {
+    if (error.code === "P2002") {
+      return {
+        status: 409,
+        message: "An account with this email already exists.",
+        details: isDev ? error.message : undefined
+      };
+    }
+
+    if (["P1001", "P1002", "P1008", "P1017"].includes(error.code)) {
+      return {
+        status: 503,
+        message: "Signup is temporarily unavailable. Please try again shortly.",
+        details: isDev ? error.message : undefined
+      };
+    }
+  }
+
+  if (error instanceof Prisma.PrismaClientInitializationError) {
+    return {
+      status: 503,
+      message: "Signup is temporarily unavailable. Please try again shortly.",
+      details: isDev ? error.message : undefined
+    };
+  }
+
+  if (error instanceof Error) {
+    return {
+      status: 500,
+      message: isDev ? error.message : "Unable to create account.",
+      details: isDev ? error.stack : undefined
+    };
+  }
+
+  return {
+    status: 500,
+    message: "Unable to create account."
+  };
+}
 
 export async function POST(request: Request) {
   try {
@@ -42,7 +93,13 @@ export async function POST(request: Request) {
         name: user.name
       }
     });
-  } catch {
-    return NextResponse.json({ error: "Unable to create account." }, { status: 500 });
+  } catch (error) {
+    console.error("Signup failed:", error);
+
+    const mapped = mapSignupError(error);
+    return NextResponse.json(
+      mapped.details ? { error: mapped.message, details: mapped.details } : { error: mapped.message },
+      { status: mapped.status }
+    );
   }
 }

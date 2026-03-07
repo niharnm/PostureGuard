@@ -2,10 +2,12 @@
 
 import { useCallback, useRef, useState } from "react";
 import {
+  ArduinoSignal,
   ArduinoConnection,
   connectArduino,
   disconnectArduino,
   isSerialSupported,
+  sendBreakToArduino,
   sendPostureToArduino
 } from "@/lib/serial";
 import { PostureState } from "@/lib/types";
@@ -17,7 +19,7 @@ export function useArduinoSerial() {
     isSerialSupported() ? "DISCONNECTED" : "UNSUPPORTED"
   );
   const [error, setError] = useState<string | null>(null);
-  const [lastSent, setLastSent] = useState<PostureState | null>(null);
+  const [lastSent, setLastSent] = useState<ArduinoSignal | null>(null);
   const connectionRef = useRef<ArduinoConnection | null>(null);
 
   const connect = useCallback(async () => {
@@ -68,6 +70,19 @@ export function useArduinoSerial() {
     [lastSent, status]
   );
 
+  const triggerBreak = useCallback(async () => {
+    if (status !== "CONNECTED" || !connectionRef.current) return;
+    try {
+      await sendBreakToArduino(connectionRef.current);
+      setLastSent("BREAK");
+    } catch (err) {
+      const message = err instanceof Error ? err.message : "Failed to write serial data.";
+      setError(message);
+      setStatus("DISCONNECTED");
+      connectionRef.current = null;
+    }
+  }, [status]);
+
   return {
     status,
     error,
@@ -75,6 +90,7 @@ export function useArduinoSerial() {
     connect,
     disconnect,
     sendState,
+    triggerBreak,
     supported: status !== "UNSUPPORTED"
   };
 }
