@@ -1,6 +1,13 @@
 import { motion } from "framer-motion";
 import { StatusBadge } from "@/components/StatusBadge";
-import { CalibrationState, PostureDebugData, PostureMetrics, PostureState } from "@/lib/types";
+import {
+  CalibrationPhase,
+  CalibrationQuality,
+  CalibrationState,
+  PostureDebugData,
+  PostureMetrics,
+  PostureState
+} from "@/lib/types";
 import { useState } from "react";
 
 type Props = {
@@ -16,12 +23,17 @@ type Props = {
   isCalibrating: boolean;
   calibrationProgress: number;
   calibrationStatus: CalibrationState;
+  calibrationPhase: CalibrationPhase;
+  calibrationCountdown: number | null;
+  calibrationQuality: CalibrationQuality | null;
+  calibratedAt: number | null;
   calibrationMessage: string | null;
   trackingStable: boolean;
   trackingConfidence: number;
   debugData: PostureDebugData;
   onCalibrate: () => void;
   canCalibrate: boolean;
+  warningBanner: string | null;
 };
 
 function metricValue(value: number) {
@@ -32,6 +44,18 @@ function scoreColor(score: number) {
   if (score >= 75) return "#55f5b5";
   if (score >= 50) return "#f2c14f";
   return "#ff5d7d";
+}
+
+function calibrationStatusLabel(status: CalibrationState) {
+  if (status === "CALIBRATED") return "Calibrated";
+  if (status === "CALIBRATING") return "Calibrating";
+  return "Not calibrated";
+}
+
+function calibrationStatusTone(status: CalibrationState) {
+  if (status === "CALIBRATED") return "text-emerald-200 border-emerald-300/35 bg-emerald-400/10";
+  if (status === "CALIBRATING") return "text-cyan-100 border-cyan-300/35 bg-cyan-400/10";
+  return "text-amber-100 border-amber-300/35 bg-amber-400/10";
 }
 
 export function LiveDashboard({
@@ -47,12 +71,17 @@ export function LiveDashboard({
   isCalibrating,
   calibrationProgress,
   calibrationStatus,
+  calibrationPhase,
+  calibrationCountdown,
+  calibrationQuality,
+  calibratedAt,
   calibrationMessage,
   trackingStable,
   trackingConfidence,
   debugData,
   onCalibrate,
-  canCalibrate
+  canCalibrate,
+  warningBanner
 }: Props) {
   const [showDebug, setShowDebug] = useState(false);
   const statusText = error
@@ -76,6 +105,11 @@ export function LiveDashboard({
           <h2 className="text-lg font-semibold text-white sm:text-xl">Live Posture Detection</h2>
           <div className="flex items-center gap-2">
             <StatusBadge state={state} />
+            <span
+              className={`rounded-lg border px-2.5 py-1 text-[11px] font-semibold uppercase tracking-[0.08em] ${calibrationStatusTone(calibrationStatus)}`}
+            >
+              {calibrationStatusLabel(calibrationStatus)}
+            </span>
             <button
               onClick={onCalibrate}
               disabled={!cameraReady || isCalibrating}
@@ -92,10 +126,38 @@ export function LiveDashboard({
             {statusText}
           </div>
           {isCalibrating ? (
-            <div className="absolute inset-x-3 bottom-3 rounded-lg border border-cyan-200/30 bg-slate-900/80 p-2 text-xs text-cyan-100">
-              <p>Sit in your ideal upright posture and hold still... {calibrationProgress}%</p>
-              <div className="mt-1 h-1.5 overflow-hidden rounded bg-slate-700">
-                <div className="h-full bg-cyan-300 transition-all" style={{ width: `${calibrationProgress}%` }} />
+            <div className="absolute inset-0 grid place-items-center bg-slate-950/62 p-4">
+              <div className="w-full max-w-sm rounded-2xl border border-cyan-300/35 bg-slate-950/90 p-4 text-cyan-50 shadow-2xl">
+                <p className="text-xs font-semibold uppercase tracking-[0.18em] text-cyan-200">Calibration</p>
+                <h3 className="mt-2 text-base font-semibold">
+                  {calibrationPhase === "INSTRUCTIONS"
+                    ? "Sit in your straight, ideal posture"
+                    : calibrationPhase === "COUNTDOWN"
+                      ? "Hold steady, scan starts now"
+                      : calibrationPhase === "SCANNING"
+                        ? "Scanning posture baseline..."
+                        : "Finalizing baseline"}
+                </h3>
+                <p className="mt-1 text-xs text-cyan-100/85">
+                  Keep your shoulders level and your head upright while staying still.
+                </p>
+                {calibrationPhase === "COUNTDOWN" ? (
+                  <div className="mt-4 text-center font-[var(--font-jetbrains)] text-5xl font-bold text-cyan-100">
+                    {calibrationCountdown ?? 1}
+                  </div>
+                ) : null}
+                {calibrationPhase === "SCANNING" ? (
+                  <div className="mt-4 space-y-2">
+                    <p className="text-xs text-cyan-100">Scanning posture baseline... {calibrationProgress}%</p>
+                    <div className="h-2 overflow-hidden rounded bg-slate-700">
+                      <div className="h-full bg-cyan-300 transition-all duration-200" style={{ width: `${calibrationProgress}%` }} />
+                    </div>
+                  </div>
+                ) : (
+                  <div className="mt-4 h-2 overflow-hidden rounded bg-slate-700">
+                    <div className="h-full bg-cyan-300/80 transition-all duration-200" style={{ width: `${calibrationProgress}%` }} />
+                  </div>
+                )}
               </div>
             </div>
           ) : null}
@@ -108,7 +170,24 @@ export function LiveDashboard({
               ? "Calibrating"
               : "Not calibrated"}
         </p>
+        {calibratedAt ? (
+          <p className="mt-1 text-xs text-emerald-200">Personal baseline saved: {new Date(calibratedAt).toLocaleString()}</p>
+        ) : null}
+        {calibrationQuality && calibrationStatus === "CALIBRATED" ? (
+          <p className="mt-1 text-xs text-slate-300">
+            Calibration quality: {Math.round(calibrationQuality.stabilityScore * 100)}% stability from{" "}
+            {calibrationQuality.goodFrames}/{calibrationQuality.totalFrames} good frames.
+          </p>
+        ) : null}
+        {warningBanner ? (
+          <div className="mt-2 rounded-lg border border-danger/35 bg-danger/15 px-3 py-2 text-xs text-red-100">
+            {warningBanner}
+          </div>
+        ) : null}
         {calibrationMessage ? <p className="mt-1 text-xs text-cyan-200">{calibrationMessage}</p> : null}
+        {calibrationStatus === "NOT_CALIBRATED" && cameraReady ? (
+          <p className="mt-1 text-xs text-amber-100">For best accuracy, calibrate posture before starting a session.</p>
+        ) : null}
         {!canCalibrate ? (
           <p className="mt-1 text-xs text-slate-400">
             You can calibrate in demo mode. Sign in to save calibration for your account.
@@ -189,6 +268,14 @@ export function LiveDashboard({
                   </p>
                 </div>
                 <div className="rounded-lg border border-slate-700/45 bg-slate-900/35 p-2">
+                  <p className="text-slate-400">Baseline Extras</p>
+                  <p className="font-[var(--font-jetbrains)]">
+                    {debugData.baselineExtras
+                      ? `${metricValue(debugData.baselineExtras.noseShoulderOffset)} / ${debugData.baselineExtras.upperBodySymmetry.toFixed(2)} / ${(debugData.baselineExtras.visibility * 100).toFixed(0)}%`
+                      : "Not calibrated"}
+                  </p>
+                </div>
+                <div className="rounded-lg border border-slate-700/45 bg-slate-900/35 p-2">
                   <p className="text-slate-400">Live Metrics</p>
                   <p className="font-[var(--font-jetbrains)]">
                     {metricValue(debugData.rawMetrics.forwardHeadOffset)} / {metricValue(debugData.rawMetrics.shoulderImbalance)} /{" "}
@@ -203,10 +290,32 @@ export function LiveDashboard({
                   </p>
                 </div>
                 <div className="rounded-lg border border-slate-700/45 bg-slate-900/35 p-2">
+                  <p className="text-slate-400">Live Extras</p>
+                  <p className="font-[var(--font-jetbrains)]">
+                    {metricValue(debugData.rawExtras.noseShoulderOffset)} / {debugData.rawExtras.upperBodySymmetry.toFixed(2)} /{" "}
+                    {(debugData.rawExtras.visibility * 100).toFixed(0)}%
+                  </p>
+                </div>
+                <div className="rounded-lg border border-slate-700/45 bg-slate-900/35 p-2">
+                  <p className="text-slate-400">Extra Deviation</p>
+                  <p className="font-[var(--font-jetbrains)]">
+                    {metricValue(debugData.deviationExtras.noseShoulderOffset)} / {debugData.deviationExtras.upperBodySymmetry.toFixed(2)} /{" "}
+                    {(debugData.deviationExtras.visibility * 100).toFixed(0)}%
+                  </p>
+                </div>
+                <div className="rounded-lg border border-slate-700/45 bg-slate-900/35 p-2">
                   <p className="text-slate-400">Penalty Weights</p>
                   <p className="font-[var(--font-jetbrains)]">
                     {debugData.penalties.forwardHeadOffset.toFixed(1)} / {debugData.penalties.shoulderImbalance.toFixed(1)} /{" "}
                     {debugData.penalties.headTilt.toFixed(1)} / {debugData.penalties.torsoLean.toFixed(1)}
+                  </p>
+                </div>
+                <div className="rounded-lg border border-slate-700/45 bg-slate-900/35 p-2">
+                  <p className="text-slate-400">Calibration Quality</p>
+                  <p className="font-[var(--font-jetbrains)]">
+                    {debugData.calibrationQuality
+                      ? `${Math.round(debugData.calibrationQuality.stabilityScore * 100)}% / ${debugData.calibrationQuality.goodFrames} good`
+                      : "N/A"}
                   </p>
                 </div>
               </div>

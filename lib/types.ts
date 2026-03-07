@@ -1,5 +1,6 @@
 export type PostureState = "GOOD" | "WARN" | "BAD" | "NO_PERSON";
 export type CalibrationState = "NOT_CALIBRATED" | "CALIBRATING" | "CALIBRATED";
+export type CalibrationPhase = "IDLE" | "INSTRUCTIONS" | "COUNTDOWN" | "SCANNING" | "COMPLETE" | "FAILED";
 
 export type PostureMetrics = {
   forwardHeadOffset: number;
@@ -15,6 +16,29 @@ export type SessionStats = {
   sessionScore: number;
 };
 
+export type TrendPoint = {
+  elapsedSec: number;
+  score: number;
+  label: string;
+};
+
+export type SnapshotMetrics = {
+  headAlignmentDeg: number;
+  shoulderBalanceDeg: number;
+};
+
+export type PosePoint = {
+  x: number;
+  y: number;
+};
+
+export type PostureSnapshot = {
+  imageDataUrl: string;
+  capturedAt: number;
+  landmarks: PosePoint[];
+  metrics: SnapshotMetrics;
+};
+
 export type CalibrationBaseline = {
   baselineForward: number;
   baselineShoulder: number;
@@ -22,10 +46,34 @@ export type CalibrationBaseline = {
   baselineTorsoAlign: number;
 };
 
+export type CalibrationExtraMetrics = {
+  noseShoulderOffset: number;
+  upperBodySymmetry: number;
+  visibility: number;
+};
+
+export type CalibrationQuality = {
+  totalFrames: number;
+  goodFrames: number;
+  avgConfidence: number;
+  avgMotion: number;
+  stabilityScore: number;
+};
+
+export type PersonalBaseline = {
+  posture: PostureMetrics;
+  extras: CalibrationExtraMetrics;
+  quality: CalibrationQuality;
+  calibratedAt: number;
+};
+
 export type PostureDebugData = {
   baseline: PostureMetrics | null;
+  baselineExtras: CalibrationExtraMetrics | null;
   rawMetrics: PostureMetrics;
+  rawExtras: CalibrationExtraMetrics;
   deviation: PostureMetrics;
+  deviationExtras: CalibrationExtraMetrics;
   penalties: Record<keyof PostureMetrics, number>;
   rawScore: number;
   smoothedScore: number;
@@ -33,6 +81,7 @@ export type PostureDebugData = {
   trackingStable: boolean;
   dominantIssue: string | null;
   state: PostureState;
+  calibrationQuality: CalibrationQuality | null;
 };
 
 export type VictorContextPayload = {
@@ -69,9 +118,15 @@ export type PersistedSession = {
 export type SessionSummary = {
   durationMs: number;
   score: number;
+  averageScore: number;
   goodMs: number;
   warnMs: number;
   badMs: number;
+  worstMoment: {
+    score: number;
+    atMs: number;
+    state: PostureState;
+  } | null;
   feedback: string;
 };
 

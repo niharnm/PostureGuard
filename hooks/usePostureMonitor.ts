@@ -3,7 +3,9 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { FilesetResolver, PoseLandmarker } from "@mediapipe/tasks-vision";
 import {
+  clamp,
   classifyPosture,
+  computeCalibrationExtras,
   computeMetrics,
   computeTrackingConfidence,
   feedbackFromSession,
@@ -14,13 +16,19 @@ import {
 } from "@/lib/posture";
 import {
   CalibrationBaseline,
+  CalibrationExtraMetrics,
+  CalibrationPhase,
+  CalibrationQuality,
+  PersonalBaseline,
   CalibrationState,
   PersistedSession,
+  PostureSnapshot,
   PostureDebugData,
   PostureMetrics,
   PostureState,
   SessionStats,
   SessionSummary,
+  TrendPoint,
   VictorContextPayload
 } from "@/lib/types";
 
@@ -33,8 +41,10 @@ type HookOptions = {
 
 type CalibrationSample = {
   metrics: PostureMetrics;
+  extras: CalibrationExtraMetrics;
   confidence: number;
   motion: number;
+  landmarks: { x: number; y: number }[];
 };
 
 const UPPER_BODY_CONNECTIONS: Array<[number, number]> = [
@@ -65,8 +75,19 @@ const DEFAULT_STATS: SessionStats = {
 
 const DEFAULT_DEBUG: PostureDebugData = {
   baseline: null,
+  baselineExtras: null,
   rawMetrics: FALLBACK_METRICS,
+  rawExtras: {
+    noseShoulderOffset: 0,
+    upperBodySymmetry: 0,
+    visibility: 0
+  },
   deviation: FALLBACK_METRICS,
+  deviationExtras: {
+    noseShoulderOffset: 0,
+    upperBodySymmetry: 0,
+    visibility: 0
+  },
   penalties: {
     forwardHeadOffset: 0,
     shoulderImbalance: 0,
@@ -78,7 +99,8 @@ const DEFAULT_DEBUG: PostureDebugData = {
   trackingConfidence: 0,
   trackingStable: false,
   dominantIssue: null,
-  state: "NO_PERSON"
+  state: "NO_PERSON",
+  calibrationQuality: null
 };
 
 const KEY_VISIBILITY_POINTS = [7, 8, 11, 12, 23, 24];
@@ -91,20 +113,27 @@ const STATE_THRESHOLD = {
   badToWarn: 66
 };
 const HOLD_MS: Record<string, number> = {
-  "GOOD->WARN": 900,
-  "WARN->BAD": 1500,
-  "GOOD->BAD": 1900,
-  "WARN->GOOD": 1300,
-  "BAD->WARN": 1200,
-  "BAD->GOOD": 2000
+  "GOOD->WARN": 1200,
+  "WARN->BAD": 1800,
+  "GOOD->BAD": 2200,
+  "WARN->GOOD": 1700,
+  "BAD->WARN": 1400,
+  "BAD->GOOD": 2300
 };
 
-const CALIBRATION_DURATION_MS = 3200;
-const CALIBRATION_MIN_FRAMES = 70;
-const CALIBRATION_MIN_CONFIDENCE = 0.62;
-const CALIBRATION_MAX_AVG_MOTION = 0.028;
+const CALIBRATION_INSTRUCTION_MS = 1_600;
+const CALIBRATION_COUNTDOWN_MS = 3_000;
+const CALIBRATION_SCAN_MS = 4_200;
+const CALIBRATION_MIN_FRAMES = 75;
+const CALIBRATION_MIN_GOOD_FRAME_RATIO = 0.72;
+const CALIBRATION_MIN_CONFIDENCE = 0.66;
+const CALIBRATION_MAX_AVG_MOTION = 0.024;
+const CALIBRATION_MAX_STABILITY_SPREAD = 0.05;
 const TRACKING_STABLE_THRESHOLD = 0.55;
 const TRACKING_UNSTABLE_THRESHOLD = 0.46;
+const BAD_ALERT_DELAY_MS = 10_000;
+const TREND_PUSH_INTERVAL_MS = 2_000;
+const SNAPSHOT_INTERVAL_MS = 1_800;
 const SMOOTH_WEIGHTS = [
   0.02, 0.02, 0.03, 0.03, 0.04, 0.04, 0.05, 0.05, 0.06, 0.06, 0.07, 0.07, 0.08, 0.09, 0.1, 0.1, 0.1,
   0.09
@@ -138,6 +167,32 @@ function averageMetrics(metrics: PostureMetrics[]) {
   };
 }
 
+function averageExtras(metrics: CalibrationExtraMetrics[]) {
+  if (!metrics.length) return null;
+  const totals = metrics.reduce(
+    (acc, item) => ({
+      noseShoulderOffset: acc.noseShoulderOffset + item.noseShoulderOffset,
+      upperBodySymmetry: acc.upperBodySymmetry + item.upperBodySymmetry,
+      visibility: acc.visibility + item.visibility
+    }),
+    { noseShoulderOffset: 0, upperBodySymmetry: 0, visibility: 0 }
+  );
+
+  return {
+    noseShoulderOffset: totals.noseShoulderOffset / metrics.length,
+    upperBodySymmetry: totals.upperBodySymmetry / metrics.length,
+    visibility: totals.visibility / metrics.length
+  } satisfies CalibrationExtraMetrics;
+}
+
+function metricSpread(samples: PostureMetrics[]) {
+  if (samples.length < 2) return 0;
+  const mean = averageMetrics(samples);
+  if (!mean) return 0;
+  const totalDistance = samples.reduce((sum, sample) => sum + metricDistance(sample, mean), 0);
+  return totalDistance / samples.length;
+}
+
 function toCalibrationPayload(metrics: PostureMetrics): CalibrationBaseline {
   return {
     baselineForward: metrics.forwardHeadOffset,
@@ -163,6 +218,29 @@ function metricDistance(a: PostureMetrics, b: PostureMetrics) {
     Math.abs(a.headTilt - b.headTilt) +
     Math.abs(a.torsoLean - b.torsoLean)
   );
+}
+
+function toDegrees(radians: number) {
+  return (radians * 180) / Math.PI;
+}
+
+function computeAlignmentMetrics(landmarks: { x: number; y: number }[]) {
+  const leftEar = landmarks[7];
+  const rightEar = landmarks[8];
+  const leftShoulder = landmarks[11];
+  const rightShoulder = landmarks[12];
+  if (!leftEar || !rightEar || !leftShoulder || !rightShoulder) {
+    return { headAlignmentDeg: 0, shoulderBalanceDeg: 0 };
+  }
+
+  const headAngle = Math.abs(toDegrees(Math.atan2(rightEar.y - leftEar.y, rightEar.x - leftEar.x)));
+  const shoulderAngle = Math.abs(
+    toDegrees(Math.atan2(rightShoulder.y - leftShoulder.y, rightShoulder.x - leftShoulder.x))
+  );
+  return {
+    headAlignmentDeg: Number(headAngle.toFixed(1)),
+    shoulderBalanceDeg: Number(shoulderAngle.toFixed(1))
+  };
 }
 
 function nextStateCandidate(score: number, activeState: PostureState) {
@@ -224,15 +302,25 @@ export function usePostureMonitor({ isAuthenticated, userId }: HookOptions) {
   const candidateStateRef = useRef<PostureState | null>(null);
   const candidateSinceRef = useRef<number | null>(null);
   const historyLastPushRef = useRef<number | null>(null);
-  const baselineRef = useRef<PostureMetrics | null>(null);
-  const calibrationStartedAtRef = useRef<number | null>(null);
+  const personalBaselineRef = useRef<PersonalBaseline | null>(null);
+  const calibrationPhaseRef = useRef<CalibrationPhase>("IDLE");
+  const calibrationPhaseStartedAtRef = useRef<number | null>(null);
   const calibrationSamplesRef = useRef<CalibrationSample[]>([]);
   const calibrationLastMetricsRef = useRef<PostureMetrics | null>(null);
   const currentSessionIdRef = useRef<string | null>(null);
   const sessionStartedAtRef = useRef<number | null>(null);
+  const monitoringStartedAtRef = useRef<number | null>(null);
   const sessionActiveRef = useRef(false);
   const headTiltAccumulatorRef = useRef({ total: 0, count: 0 });
   const trackingStableRef = useRef(true);
+  const trendLastPushRef = useRef<number | null>(null);
+  const badSinceRef = useRef<number | null>(null);
+  const badAlertSentRef = useRef(false);
+  const goodStreakStartedAtRef = useRef<number | null>(null);
+  const scoreSamplesRef = useRef<number[]>([]);
+  const worstMomentRef = useRef<{ score: number; atMs: number; state: PostureState } | null>(null);
+  const snapshotLastCaptureRef = useRef<number | null>(null);
+  const latestLandmarksRef = useRef<{ x: number; y: number }[] | null>(null);
 
   const [modelStatus, setModelStatus] = useState<ModelStatus>("IDLE");
   const [cameraReady, setCameraReady] = useState(false);
@@ -247,6 +335,10 @@ export function usePostureMonitor({ isAuthenticated, userId }: HookOptions) {
   const [timeline, setTimeline] = useState<PostureState[]>([]);
   const [calibrationProgress, setCalibrationProgress] = useState(0);
   const [calibrationStatus, setCalibrationStatus] = useState<CalibrationState>("NOT_CALIBRATED");
+  const [calibrationPhase, setCalibrationPhase] = useState<CalibrationPhase>("IDLE");
+  const [calibrationCountdown, setCalibrationCountdown] = useState<number | null>(null);
+  const [calibrationQuality, setCalibrationQuality] = useState<CalibrationQuality | null>(null);
+  const [calibratedAt, setCalibratedAt] = useState<number | null>(null);
   const [calibrationMessage, setCalibrationMessage] = useState<string | null>(null);
   const [trackingConfidence, setTrackingConfidence] = useState(0);
   const [trackingStable, setTrackingStable] = useState(true);
@@ -257,12 +349,20 @@ export function usePostureMonitor({ isAuthenticated, userId }: HookOptions) {
   const [sessionElapsedMs, setSessionElapsedMs] = useState(0);
   const [sessionSummary, setSessionSummary] = useState<SessionSummary | null>(null);
   const [sessionHistory, setSessionHistory] = useState<PersistedSession[]>([]);
+  const [postureTrend, setPostureTrend] = useState<TrendPoint[]>([]);
+  const [goodStreakMs, setGoodStreakMs] = useState(0);
+  const [badPostureMs, setBadPostureMs] = useState(0);
+  const [alertBanner, setAlertBanner] = useState<string | null>(null);
+  const [soundAlertEnabled, setSoundAlertEnabled] = useState(true);
+  const [calibrationSnapshot, setCalibrationSnapshot] = useState<PostureSnapshot | null>(null);
+  const [currentSnapshot, setCurrentSnapshot] = useState<PostureSnapshot | null>(null);
 
   const loadPersistedData = useCallback(async () => {
     if (!isAuthenticated || !userId) {
-      baselineRef.current = null;
+      personalBaselineRef.current = null;
       setCalibrationStatus("NOT_CALIBRATED");
       setCalibrationMessage("Calibration is available for this session. Log in to save it to your account.");
+      setCalibratedAt(null);
       setSessionHistory([]);
       return;
     }
@@ -275,13 +375,37 @@ export function usePostureMonitor({ isAuthenticated, userId }: HookOptions) {
     if (calibrationRes.ok) {
       const calibrationData = await calibrationRes.json();
       if (calibrationData.calibration) {
-        baselineRef.current = toMetricsFromCalibration(calibrationData.calibration as CalibrationBaseline);
+        const posture = toMetricsFromCalibration(calibrationData.calibration as CalibrationBaseline);
+        personalBaselineRef.current = {
+          posture,
+          extras: {
+            noseShoulderOffset: posture.forwardHeadOffset,
+            upperBodySymmetry: 1 - clamp(posture.shoulderImbalance * 2.8 + posture.headTilt * 2.3, 0, 1),
+            visibility: 0.8
+          },
+          quality: {
+            totalFrames: 0,
+            goodFrames: 0,
+            avgConfidence: 0.8,
+            avgMotion: 0,
+            stabilityScore: 0.75
+          },
+          calibratedAt: calibrationData.calibration.updatedAt
+            ? new Date(calibrationData.calibration.updatedAt).getTime()
+            : Date.now()
+        };
         setCalibrationStatus("CALIBRATED");
         setCalibrationMessage("Calibration loaded from your account.");
+        setCalibratedAt(
+          calibrationData.calibration.updatedAt
+            ? new Date(calibrationData.calibration.updatedAt).getTime()
+            : Date.now()
+        );
       } else {
-        baselineRef.current = null;
+        personalBaselineRef.current = null;
         setCalibrationStatus("NOT_CALIBRATED");
         setCalibrationMessage("No saved calibration. Click 'Calibrate Posture'.");
+        setCalibratedAt(null);
       }
     }
 
@@ -294,6 +418,62 @@ export function usePostureMonitor({ isAuthenticated, userId }: HookOptions) {
   useEffect(() => {
     void loadPersistedData();
   }, [loadPersistedData]);
+
+  const maybeRequestNotificationPermission = useCallback(async () => {
+    if (typeof window === "undefined" || !("Notification" in window)) return;
+    if (Notification.permission === "default") {
+      try {
+        await Notification.requestPermission();
+      } catch {
+        // Browsers may block if not user-initiated; ignore.
+      }
+    }
+  }, []);
+
+  const triggerNotification = useCallback((message: string) => {
+    if (typeof window === "undefined" || !("Notification" in window)) return;
+    if (Notification.permission === "granted") {
+      new Notification("PostureGuard Alert", { body: message });
+    }
+  }, []);
+
+  const playAlertTone = useCallback(() => {
+    if (typeof window === "undefined" || !soundAlertEnabled) return;
+    const audioCtx = new window.AudioContext();
+    const oscillator = audioCtx.createOscillator();
+    const gain = audioCtx.createGain();
+    oscillator.type = "sine";
+    oscillator.frequency.value = 740;
+    gain.gain.value = 0.0001;
+    oscillator.connect(gain);
+    gain.connect(audioCtx.destination);
+    oscillator.start();
+    gain.gain.exponentialRampToValueAtTime(0.18, audioCtx.currentTime + 0.02);
+    gain.gain.exponentialRampToValueAtTime(0.0001, audioCtx.currentTime + 0.22);
+    oscillator.stop(audioCtx.currentTime + 0.24);
+    oscillator.onended = () => {
+      void audioCtx.close();
+    };
+  }, [soundAlertEnabled]);
+
+  const captureSnapshot = useCallback((landmarks: { x: number; y: number }[] | null, timestamp: number) => {
+    const video = videoRef.current;
+    if (!video || !landmarks || !video.videoWidth || !video.videoHeight) return null;
+
+    const captureCanvas = document.createElement("canvas");
+    captureCanvas.width = video.videoWidth;
+    captureCanvas.height = video.videoHeight;
+    const ctx = captureCanvas.getContext("2d");
+    if (!ctx) return null;
+    ctx.drawImage(video, 0, 0, captureCanvas.width, captureCanvas.height);
+
+    return {
+      imageDataUrl: captureCanvas.toDataURL("image/jpeg", 0.8),
+      capturedAt: timestamp,
+      landmarks: landmarks.map((point) => ({ x: point.x, y: point.y })),
+      metrics: computeAlignmentMetrics(landmarks)
+    } satisfies PostureSnapshot;
+  }, []);
 
   const drawOverlay = useCallback((landmarks: { x: number; y: number }[] | null, label: PostureState) => {
     const canvas = canvasRef.current;
@@ -344,31 +524,79 @@ export function usePostureMonitor({ isAuthenticated, userId }: HookOptions) {
       ctx.arc(point.x * width, point.y * height, 4, 0, Math.PI * 2);
       ctx.fill();
     });
+
+    const leftEar = landmarks[7];
+    const rightEar = landmarks[8];
+    const leftShoulder = landmarks[11];
+    const rightShoulder = landmarks[12];
+    const metricsSnapshot = computeAlignmentMetrics(landmarks);
+
+    if (leftEar && rightEar) {
+      ctx.strokeStyle = "#5ef0ff";
+      ctx.lineWidth = 2;
+      ctx.beginPath();
+      ctx.moveTo(leftEar.x * width, leftEar.y * height);
+      ctx.lineTo(rightEar.x * width, rightEar.y * height);
+      ctx.stroke();
+    }
+
+    if (leftShoulder && rightShoulder) {
+      ctx.strokeStyle = "#f2c14f";
+      ctx.lineWidth = 2;
+      ctx.beginPath();
+      ctx.moveTo(leftShoulder.x * width, leftShoulder.y * height);
+      ctx.lineTo(rightShoulder.x * width, rightShoulder.y * height);
+      ctx.stroke();
+    }
+
+    ctx.fillStyle = "rgba(10, 16, 32, 0.78)";
+    ctx.fillRect(10, height - 72, 240, 62);
+    ctx.fillStyle = "#e2e8f0";
+    ctx.font = '600 13px "JetBrains Mono", monospace';
+    ctx.textAlign = "left";
+    ctx.fillText(`Head tilt: ${metricsSnapshot.headAlignmentDeg.toFixed(1)}°`, 18, height - 44);
+    ctx.fillText(`Shoulder imbalance: ${metricsSnapshot.shoulderBalanceDeg.toFixed(1)}°`, 18, height - 22);
   }, []);
 
-  const updateSessionStats = useCallback((nextState: PostureState, now: number) => {
+  const updateSessionStats = useCallback((nextState: PostureState, nextScore: number, now: number) => {
     const last = lastFrameRef.current;
     lastFrameRef.current = now;
     if (!last) {
       activeStateRef.current = nextState;
       historyLastPushRef.current = now;
-      return;
-    }
-
-    if (!sessionActiveRef.current) {
-      activeStateRef.current = nextState;
+      trendLastPushRef.current = now;
+      if (nextState === "GOOD") {
+        goodStreakStartedAtRef.current = now;
+      }
+      if (nextState === "BAD") {
+        badSinceRef.current = now;
+      }
       return;
     }
 
     const delta = now - last;
     const next = { ...statsRef.current };
 
-    if (activeStateRef.current === "GOOD") next.goodMs += delta;
-    if (activeStateRef.current === "WARN") next.warnMs += delta;
-    if (activeStateRef.current === "BAD") next.badMs += delta;
+    if (sessionActiveRef.current) {
+      if (activeStateRef.current === "GOOD") next.goodMs += delta;
+      if (activeStateRef.current === "WARN") next.warnMs += delta;
+      if (activeStateRef.current === "BAD") next.badMs += delta;
 
-    const total = next.goodMs + next.warnMs + next.badMs;
-    next.sessionScore = total ? Math.round((next.goodMs / total) * 100) : 100;
+      const total = next.goodMs + next.warnMs + next.badMs;
+      next.sessionScore = total ? Math.round((next.goodMs / total) * 100) : 100;
+      scoreSamplesRef.current.push(nextScore);
+
+      if (sessionStartedAtRef.current) {
+        const atMs = Math.max(0, Date.now() - sessionStartedAtRef.current);
+        if (!worstMomentRef.current || nextScore < worstMomentRef.current.score) {
+          worstMomentRef.current = {
+            score: nextScore,
+            atMs,
+            state: nextState
+          };
+        }
+      }
+    }
 
     const lastPush = historyLastPushRef.current;
     if (lastPush && now - lastPush >= 1000) {
@@ -376,10 +604,52 @@ export function usePostureMonitor({ isAuthenticated, userId }: HookOptions) {
       historyLastPushRef.current = now;
     }
 
+    const trendLastPush = trendLastPushRef.current;
+    if (!trendLastPush || now - trendLastPush >= TREND_PUSH_INTERVAL_MS) {
+      const elapsedSecBase = sessionActiveRef.current && sessionStartedAtRef.current
+        ? Math.max(0, (Date.now() - sessionStartedAtRef.current) / 1000)
+        : Math.max(0, (Date.now() - (monitoringStartedAtRef.current ?? Date.now())) / 1000);
+      setPostureTrend((prev) => [
+        ...prev.slice(-89),
+        {
+          elapsedSec: Math.round(elapsedSecBase),
+          score: nextScore,
+          label: `${Math.round(elapsedSecBase)}s`
+        }
+      ]);
+      trendLastPushRef.current = now;
+    }
+
+    if (nextState === "GOOD") {
+      if (!goodStreakStartedAtRef.current) goodStreakStartedAtRef.current = now;
+      setGoodStreakMs(Math.max(0, now - goodStreakStartedAtRef.current));
+    } else {
+      goodStreakStartedAtRef.current = null;
+      setGoodStreakMs(0);
+    }
+
+    if (nextState === "BAD") {
+      if (!badSinceRef.current) badSinceRef.current = now;
+      const badDuration = Math.max(0, now - badSinceRef.current);
+      setBadPostureMs(badDuration);
+      if (badDuration >= BAD_ALERT_DELAY_MS && !badAlertSentRef.current) {
+        const message = "Your posture has been poor for 10 seconds. Sit upright.";
+        setAlertBanner(message);
+        triggerNotification(message);
+        playAlertTone();
+        badAlertSentRef.current = true;
+      }
+    } else {
+      badSinceRef.current = null;
+      badAlertSentRef.current = false;
+      setBadPostureMs(0);
+      setAlertBanner(null);
+    }
+
     activeStateRef.current = nextState;
     statsRef.current = next;
-    setStats(next);
-  }, []);
+    if (sessionActiveRef.current) setStats(next);
+  }, [playAlertTone, triggerNotification]);
 
   const stopMonitoring = useCallback(() => {
     if (rafRef.current) cancelAnimationFrame(rafRef.current);
@@ -392,6 +662,9 @@ export function usePostureMonitor({ isAuthenticated, userId }: HookOptions) {
 
     setCameraReady(false);
     lastFrameRef.current = null;
+    monitoringStartedAtRef.current = null;
+    setBadPostureMs(0);
+    setAlertBanner(null);
   }, []);
 
   const beginCalibration = useCallback(() => {
@@ -400,13 +673,20 @@ export function usePostureMonitor({ isAuthenticated, userId }: HookOptions) {
       return;
     }
 
-    calibrationStartedAtRef.current = performance.now();
+    calibrationPhaseRef.current = "INSTRUCTIONS";
+    calibrationPhaseStartedAtRef.current = performance.now();
     calibrationSamplesRef.current = [];
     calibrationLastMetricsRef.current = null;
     setCalibrationStatus("CALIBRATING");
-    setCalibrationMessage("Sit in your ideal upright posture and hold still.");
+    setCalibrationPhase("INSTRUCTIONS");
+    setCalibrationCountdown(3);
+    setCalibrationQuality(null);
+    setCalibrationMessage("Sit in your straight, ideal posture. We will scan your baseline in a moment.");
     setCalibrationProgress(0);
-    setTips(["Sit in your ideal upright posture and hold still."]);
+    setTips([
+      "Sit in your straight, ideal posture.",
+      "Keep your shoulders level and your head upright."
+    ]);
   }, [cameraReady]);
 
   const finalizeCalibration = useCallback(async () => {
@@ -414,6 +694,8 @@ export function usePostureMonitor({ isAuthenticated, userId }: HookOptions) {
 
     const validSamples = samples.filter((sample) => sample.confidence >= TRACKING_UNSTABLE_THRESHOLD);
     const stableSamples = validSamples.filter((sample) => sample.confidence >= CALIBRATION_MIN_CONFIDENCE);
+    const stableMetrics = stableSamples.map((sample) => sample.metrics);
+    const stableExtras = stableSamples.map((sample) => sample.extras);
 
     const avgConfidence =
       validSamples.length > 0
@@ -425,13 +707,29 @@ export function usePostureMonitor({ isAuthenticated, userId }: HookOptions) {
         ? validSamples.reduce((sum, sample) => sum + sample.motion, 0) / validSamples.length
         : Number.POSITIVE_INFINITY;
 
+    const spread = metricSpread(stableMetrics);
+    const goodFrameRatio = samples.length ? stableSamples.length / samples.length : 0;
+    const stabilityScore = clamp(1 - spread / Math.max(CALIBRATION_MAX_STABILITY_SPREAD, 0.0001), 0, 1);
+    const quality = {
+      totalFrames: samples.length,
+      goodFrames: stableSamples.length,
+      avgConfidence,
+      avgMotion,
+      stabilityScore
+    } satisfies CalibrationQuality;
+    setCalibrationQuality(quality);
+
     if (
       stableSamples.length < CALIBRATION_MIN_FRAMES ||
+      goodFrameRatio < CALIBRATION_MIN_GOOD_FRAME_RATIO ||
       avgConfidence < CALIBRATION_MIN_CONFIDENCE ||
-      avgMotion > CALIBRATION_MAX_AVG_MOTION
+      avgMotion > CALIBRATION_MAX_AVG_MOTION ||
+      spread > CALIBRATION_MAX_STABILITY_SPREAD
     ) {
       setCalibrationStatus("NOT_CALIBRATED");
-      setCalibrationMessage("Calibration failed, please sit still and try again.");
+      setCalibrationPhase("FAILED");
+      calibrationPhaseRef.current = "FAILED";
+      setCalibrationMessage("Calibration failed. Sit still in a straight posture and try again.");
       setCalibrationProgress(0);
       setTips([
         "Calibration failed. Sit upright, keep shoulders visible, and hold still before trying again."
@@ -439,38 +737,56 @@ export function usePostureMonitor({ isAuthenticated, userId }: HookOptions) {
       return;
     }
 
-    const baseline = averageMetrics(stableSamples.map((sample) => sample.metrics));
-    if (!baseline) {
+    const postureBaseline = averageMetrics(stableMetrics);
+    const extraBaseline = averageExtras(stableExtras);
+    if (!postureBaseline || !extraBaseline) {
       setCalibrationStatus("NOT_CALIBRATED");
-      setCalibrationMessage("Calibration failed, please sit still and try again.");
+      setCalibrationPhase("FAILED");
+      calibrationPhaseRef.current = "FAILED";
+      setCalibrationMessage("Calibration failed. Sit still in a straight posture and try again.");
       return;
     }
 
-    baselineRef.current = baseline;
+    const nextBaseline = {
+      posture: postureBaseline,
+      extras: extraBaseline,
+      quality,
+      calibratedAt: Date.now()
+    } satisfies PersonalBaseline;
+
+    personalBaselineRef.current = nextBaseline;
     setCalibrationStatus("CALIBRATED");
+    setCalibrationPhase("COMPLETE");
+    calibrationPhaseRef.current = "COMPLETE";
+    setCalibratedAt(nextBaseline.calibratedAt);
+    const representativeSample = stableSamples[Math.floor(stableSamples.length / 2)] ?? stableSamples[0];
+    if (representativeSample?.landmarks?.length) {
+      const snapshot = captureSnapshot(representativeSample.landmarks, Date.now());
+      if (snapshot) setCalibrationSnapshot(snapshot);
+    }
 
     if (isAuthenticated) {
       try {
         const res = await fetch("/api/calibration", {
           method: "PUT",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify(toCalibrationPayload(baseline))
+          body: JSON.stringify(toCalibrationPayload(postureBaseline))
         });
 
         if (res.ok) {
-          setCalibrationMessage("Calibrated successfully and saved to your account.");
+          setCalibrationMessage("Calibration complete. Personal baseline saved.");
         } else {
-          setCalibrationMessage("Calibrated successfully for this session. Could not save to account.");
+          setCalibrationMessage("Calibration complete for this session. Could not save to account.");
         }
       } catch {
-        setCalibrationMessage("Calibrated successfully for this session. Could not save to account.");
+        setCalibrationMessage("Calibration complete for this session. Could not save to account.");
       }
     } else {
-      setCalibrationMessage("Calibrated successfully for this demo session.");
+      setCalibrationMessage("Calibration complete for this demo session.");
     }
 
     setTips(["Calibration complete. Posture scoring now tracks deviation from your baseline."]);
-  }, [isAuthenticated]);
+  }, [captureSnapshot, isAuthenticated]);
 
   const startSession = useCallback(async () => {
     if (!isAuthenticated) {
@@ -491,9 +807,26 @@ export function usePostureMonitor({ isAuthenticated, userId }: HookOptions) {
       statsRef.current = { ...DEFAULT_STATS };
       setStats({ ...DEFAULT_STATS });
       setTimeline([]);
+      setPostureTrend([]);
+      trendLastPushRef.current = null;
+      scoreSamplesRef.current = [];
+      worstMomentRef.current = null;
+      badSinceRef.current = null;
+      badAlertSentRef.current = false;
+      goodStreakStartedAtRef.current = null;
+      setGoodStreakMs(0);
+      setBadPostureMs(0);
+      setAlertBanner(null);
       headTiltAccumulatorRef.current = { total: 0, count: 0 };
       setSessionSummary(null);
-      setTips(["Session started. Keep your ears aligned over your shoulders for best score."]);
+      setTips(
+        personalBaselineRef.current
+          ? ["Session started. Keep your ears aligned over your shoulders for best score."]
+          : [
+              "Session started. For best accuracy, run Calibrate Posture first.",
+              "You can still continue in demo mode without calibration."
+            ]
+      );
     } catch (err) {
       setError(err instanceof Error ? err.message : "Unable to start session.");
     }
@@ -545,9 +878,13 @@ export function usePostureMonitor({ isAuthenticated, userId }: HookOptions) {
     setSessionSummary({
       durationMs,
       score: finalStats.sessionScore,
+      averageScore: scoreSamplesRef.current.length
+        ? Math.round(scoreSamplesRef.current.reduce((sum, value) => sum + value, 0) / scoreSamplesRef.current.length)
+        : finalStats.sessionScore,
       goodMs: finalStats.goodMs,
       warnMs: finalStats.warnMs,
       badMs: finalStats.badMs,
+      worstMoment: worstMomentRef.current,
       feedback
     });
   }, []);
@@ -558,6 +895,7 @@ export function usePostureMonitor({ isAuthenticated, userId }: HookOptions) {
 
   const startMonitoring = useCallback(async () => {
     setError(null);
+    void maybeRequestNotificationPermission();
 
     if (!poseRef.current) {
       setModelStatus("LOADING");
@@ -603,6 +941,18 @@ export function usePostureMonitor({ isAuthenticated, userId }: HookOptions) {
       candidateStateRef.current = null;
       candidateSinceRef.current = null;
       historyLastPushRef.current = null;
+      trendLastPushRef.current = null;
+      monitoringStartedAtRef.current = Date.now();
+      setPostureTrend([]);
+      snapshotLastCaptureRef.current = null;
+      setCurrentSnapshot(null);
+      if (calibrationStatus !== "CALIBRATED") {
+        setCalibrationPhase("IDLE");
+      }
+      setCalibrationCountdown(null);
+      if (calibrationStatus !== "CALIBRATING") {
+        setCalibrationProgress(0);
+      }
 
       const video = videoRef.current;
       if (!video) throw new Error("Video element is unavailable.");
@@ -610,6 +960,7 @@ export function usePostureMonitor({ isAuthenticated, userId }: HookOptions) {
       video.srcObject = stream;
       await video.play();
       setCameraReady(true);
+      monitoringStartedAtRef.current = Date.now();
 
       const tick = () => {
         const pose = poseRef.current;
@@ -625,6 +976,7 @@ export function usePostureMonitor({ isAuthenticated, userId }: HookOptions) {
         const landmarks = result.landmarks[0];
 
         if (!landmarks) {
+          latestLandmarksRef.current = null;
           const nextState: PostureState = "NO_PERSON";
           setState(nextState);
           setScore(0);
@@ -643,13 +995,25 @@ export function usePostureMonitor({ isAuthenticated, userId }: HookOptions) {
             trackingConfidence: 0,
             rawMetrics: FALLBACK_METRICS,
             deviation: FALLBACK_METRICS,
+            rawExtras: {
+              noseShoulderOffset: 0,
+              upperBodySymmetry: 0,
+              visibility: 0
+            },
+            deviationExtras: {
+              noseShoulderOffset: 0,
+              upperBodySymmetry: 0,
+              visibility: 0
+            },
             dominantIssue: null
           }));
           drawOverlay(null, nextState);
-          updateSessionStats(nextState, now);
+          updateSessionStats(nextState, 0, now);
           rafRef.current = requestAnimationFrame(tick);
           return;
         }
+
+        latestLandmarksRef.current = landmarks.map((point) => ({ x: point.x, y: point.y }));
 
         const confidence = computeTrackingConfidence(landmarks, KEY_VISIBILITY_POINTS);
         const currentlyStable =
@@ -661,24 +1025,56 @@ export function usePostureMonitor({ isAuthenticated, userId }: HookOptions) {
         setTrackingStable(currentlyStable);
 
         const rawMetrics = computeMetrics(landmarks);
+        const rawExtras = computeCalibrationExtras(landmarks);
 
         if (calibrationStatus === "CALIBRATING") {
-          const startedAt = calibrationStartedAtRef.current ?? now;
-          const elapsed = now - startedAt;
-          const motion = calibrationLastMetricsRef.current
-            ? metricDistance(rawMetrics, calibrationLastMetricsRef.current)
-            : 0;
-          calibrationLastMetricsRef.current = rawMetrics;
-          calibrationSamplesRef.current.push({ metrics: rawMetrics, confidence, motion });
+          const phase = calibrationPhaseRef.current;
+          const phaseStartedAt = calibrationPhaseStartedAtRef.current ?? now;
+          const elapsed = now - phaseStartedAt;
 
-          const progress = Math.min(100, Math.round((elapsed / CALIBRATION_DURATION_MS) * 100));
-          setCalibrationProgress(progress);
+          if (phase === "INSTRUCTIONS") {
+            setCalibrationProgress(0);
+            if (elapsed >= CALIBRATION_INSTRUCTION_MS) {
+              calibrationPhaseRef.current = "COUNTDOWN";
+              calibrationPhaseStartedAtRef.current = now;
+              setCalibrationPhase("COUNTDOWN");
+              setCalibrationCountdown(3);
+            }
+          } else if (phase === "COUNTDOWN") {
+            const secondsLeft = Math.max(1, 3 - Math.floor(elapsed / 1000));
+            setCalibrationCountdown(secondsLeft);
+            const countdownProgress = Math.min(100, Math.round((elapsed / CALIBRATION_COUNTDOWN_MS) * 100));
+            setCalibrationProgress(countdownProgress);
 
-          if (elapsed >= CALIBRATION_DURATION_MS) {
-            calibrationStartedAtRef.current = null;
-            calibrationLastMetricsRef.current = null;
-            setCalibrationProgress(100);
-            void finalizeCalibration();
+            if (elapsed >= CALIBRATION_COUNTDOWN_MS) {
+              calibrationPhaseRef.current = "SCANNING";
+              calibrationPhaseStartedAtRef.current = now;
+              calibrationSamplesRef.current = [];
+              calibrationLastMetricsRef.current = null;
+              setCalibrationPhase("SCANNING");
+              setCalibrationCountdown(null);
+              setCalibrationProgress(0);
+            }
+          } else if (phase === "SCANNING") {
+            const motion = calibrationLastMetricsRef.current
+              ? metricDistance(rawMetrics, calibrationLastMetricsRef.current)
+              : 0;
+            calibrationLastMetricsRef.current = rawMetrics;
+            calibrationSamplesRef.current.push({
+              metrics: rawMetrics,
+              extras: rawExtras,
+              confidence,
+              motion,
+              landmarks: landmarks.map((point) => ({ x: point.x, y: point.y }))
+            });
+
+            const progress = Math.min(100, Math.round((elapsed / CALIBRATION_SCAN_MS) * 100));
+            setCalibrationProgress(progress);
+            if (elapsed >= CALIBRATION_SCAN_MS) {
+              calibrationLastMetricsRef.current = null;
+              setCalibrationProgress(100);
+              void finalizeCalibration();
+            }
           }
 
           drawOverlay(landmarks, activeStateRef.current);
@@ -686,10 +1082,27 @@ export function usePostureMonitor({ isAuthenticated, userId }: HookOptions) {
           return;
         }
 
-        const baseline = baselineRef.current ?? FALLBACK_METRICS;
-        const deviation = baselineRef.current ? metricDelta(rawMetrics, baseline) : rawMetrics;
+        const baseline = personalBaselineRef.current?.posture ?? FALLBACK_METRICS;
+        const baselineExtras = personalBaselineRef.current?.extras ?? {
+          noseShoulderOffset: 0,
+          upperBodySymmetry: 1,
+          visibility: confidence
+        };
+        const hasBaseline = Boolean(personalBaselineRef.current);
+        const deviation = hasBaseline ? metricDelta(rawMetrics, baseline) : rawMetrics;
+        const deviationExtras: CalibrationExtraMetrics = {
+          noseShoulderOffset: hasBaseline
+            ? Math.abs(rawExtras.noseShoulderOffset - baselineExtras.noseShoulderOffset)
+            : rawExtras.noseShoulderOffset,
+          upperBodySymmetry: hasBaseline
+            ? Math.abs(rawExtras.upperBodySymmetry - baselineExtras.upperBodySymmetry)
+            : 1 - rawExtras.upperBodySymmetry,
+          visibility: Math.max(0, (baselineExtras.visibility || 0) - rawExtras.visibility)
+        };
         const scoring = scoreFromDeviation(deviation);
-        const rawScore = scoring.rawScore;
+        const symmetryPenalty = clamp(deviationExtras.upperBodySymmetry * 34, 0, 22);
+        const noseOffsetPenalty = clamp(deviationExtras.noseShoulderOffset * 26, 0, 18);
+        const rawScore = clamp(Math.round(scoring.rawScore - symmetryPenalty - noseOffsetPenalty), 0, 100);
 
         if (sessionActiveRef.current) {
           headTiltAccumulatorRef.current.total += deviation.headTilt;
@@ -738,20 +1151,31 @@ export function usePostureMonitor({ isAuthenticated, userId }: HookOptions) {
         setTips(tipsFromIssues(scoring.issues, stableState, currentlyStable));
 
         setDebugData({
-          baseline: baselineRef.current,
+          baseline: personalBaselineRef.current?.posture ?? null,
+          baselineExtras: personalBaselineRef.current?.extras ?? null,
           rawMetrics,
+          rawExtras,
           deviation,
+          deviationExtras,
           penalties: scoring.penalties,
           rawScore,
           smoothedScore,
           trackingConfidence: confidence,
           trackingStable: currentlyStable,
           dominantIssue: topIssue?.label ?? null,
-          state: stableState
+          state: stableState,
+          calibrationQuality
         });
 
+        const lastSnapshotAt = snapshotLastCaptureRef.current;
+        if (!lastSnapshotAt || now - lastSnapshotAt >= SNAPSHOT_INTERVAL_MS) {
+          const snapshot = captureSnapshot(latestLandmarksRef.current, Date.now());
+          if (snapshot) setCurrentSnapshot(snapshot);
+          snapshotLastCaptureRef.current = now;
+        }
+
         drawOverlay(landmarks, stableState);
-        updateSessionStats(stableState, now);
+        updateSessionStats(stableState, smoothedScore, now);
         rafRef.current = requestAnimationFrame(tick);
       };
 
@@ -764,7 +1188,15 @@ export function usePostureMonitor({ isAuthenticated, userId }: HookOptions) {
       );
       stopMonitoring();
     }
-  }, [calibrationStatus, drawOverlay, finalizeCalibration, stopMonitoring, updateSessionStats]);
+  }, [
+    captureSnapshot,
+    calibrationStatus,
+    drawOverlay,
+    finalizeCalibration,
+    maybeRequestNotificationPermission,
+    stopMonitoring,
+    updateSessionStats
+  ]);
 
   useEffect(() => stopMonitoring, [stopMonitoring]);
 
@@ -830,6 +1262,10 @@ export function usePostureMonitor({ isAuthenticated, userId }: HookOptions) {
     timeline,
     calibrationProgress,
     calibrationStatus,
+    calibrationPhase,
+    calibrationCountdown,
+    calibrationQuality,
+    calibratedAt,
     calibrationMessage,
     trackingConfidence,
     trackingStable,
@@ -840,12 +1276,20 @@ export function usePostureMonitor({ isAuthenticated, userId }: HookOptions) {
     sessionElapsedMs,
     sessionHistory,
     sessionSummary,
+    postureTrend,
+    goodStreakMs,
+    badPostureMs,
+    alertBanner,
+    soundAlertEnabled,
+    calibrationSnapshot,
+    currentSnapshot,
     victorContext,
     startMonitoring,
     stopMonitoring,
     beginCalibration,
     startSession,
     endSession,
-    dismissSessionSummary
+    dismissSessionSummary,
+    setSoundAlertEnabled
   };
 }

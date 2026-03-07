@@ -4,11 +4,12 @@ type Props = {
   authenticated: boolean;
   active: boolean;
   elapsedLabel: string;
+  calibrated: boolean;
   onStart: () => void;
   onEnd: () => void;
 };
 
-export function SessionControls({ authenticated, active, elapsedLabel, onStart, onEnd }: Props) {
+export function SessionControls({ authenticated, active, elapsedLabel, calibrated, onStart, onEnd }: Props) {
   return (
     <section className="panel rounded-3xl p-5 sm:p-6">
       <div className="flex flex-wrap items-center justify-between gap-4">
@@ -21,6 +22,9 @@ export function SessionControls({ authenticated, active, elapsedLabel, onStart, 
                 : "Start a posture session to track score history."
               : "Log in to save session history and calibration."}
           </p>
+          {authenticated && !calibrated ? (
+            <p className="mt-1 text-xs text-amber-100">For best accuracy, calibrate posture first. You can still start now.</p>
+          ) : null}
         </div>
         <div className="flex gap-2">
           <button

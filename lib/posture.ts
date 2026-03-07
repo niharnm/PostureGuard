@@ -1,4 +1,4 @@
-import { PostureMetrics, PostureState } from "@/lib/types";
+import { CalibrationExtraMetrics, PostureMetrics, PostureState } from "@/lib/types";
 
 type Landmark = {
   x: number;
@@ -22,7 +22,7 @@ export type DeviationScore = {
   issues: PostureIssue[];
 };
 
-const clamp = (value: number, min: number, max: number) =>
+export const clamp = (value: number, min: number, max: number) =>
   Math.min(Math.max(value, min), max);
 
 const normalizePenalty = (value: number, low: number, high: number) =>
@@ -102,6 +102,46 @@ export function computeMetrics(landmarks: Landmark[]): PostureMetrics {
         Math.abs(nose.x - shoulderMidX) * 0.35 +
         Math.abs(nose.y - shoulderMidY) * 0.1) /
       shoulderWidth
+  };
+}
+
+export function computeCalibrationExtras(landmarks: Landmark[]): CalibrationExtraMetrics {
+  const nose = landmarks[0];
+  const leftEar = landmarks[7];
+  const rightEar = landmarks[8];
+  const leftShoulder = landmarks[11];
+  const rightShoulder = landmarks[12];
+
+  if (!nose || !leftEar || !rightEar || !leftShoulder || !rightShoulder) {
+    return {
+      noseShoulderOffset: 0,
+      upperBodySymmetry: 0,
+      visibility: 0
+    };
+  }
+
+  const shoulderMidX = (leftShoulder.x + rightShoulder.x) / 2;
+  const shoulderMidY = (leftShoulder.y + rightShoulder.y) / 2;
+  const earMidX = (leftEar.x + rightEar.x) / 2;
+  const shoulderWidth = Math.max(
+    Math.hypot(leftShoulder.x - rightShoulder.x, leftShoulder.y - rightShoulder.y),
+    0.001
+  );
+
+  const noseShoulderOffset = Math.abs(nose.x - shoulderMidX) / shoulderWidth;
+  const earShoulderCenterGap = Math.abs(earMidX - shoulderMidX) / shoulderWidth;
+  const shoulderHeightDiff = Math.abs(leftShoulder.y - rightShoulder.y) / shoulderWidth;
+  const earHeightDiff = Math.abs(leftEar.y - rightEar.y) / shoulderWidth;
+  const faceCenterOffsetY = Math.abs(nose.y - shoulderMidY) / shoulderWidth;
+
+  const asymmetry = shoulderHeightDiff * 0.35 + earHeightDiff * 0.25 + earShoulderCenterGap * 0.25 + faceCenterOffsetY * 0.15;
+  const upperBodySymmetry = clamp(1 - asymmetry * 1.7, 0, 1);
+  const visibility = computeTrackingConfidence(landmarks, [0, 7, 8, 11, 12]);
+
+  return {
+    noseShoulderOffset,
+    upperBodySymmetry,
+    visibility
   };
 }
 
