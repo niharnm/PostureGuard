@@ -3,14 +3,14 @@ import { prisma } from "@/lib/prisma";
 import { NextResponse } from "next/server";
 
 type Params = {
-  params: { id: string };
+  params: Promise<{ id: string }>;
 };
 
 export async function PATCH(request: Request, context: Params) {
   const userId = await getSessionUserId();
   if (!userId) return unauthorizedResponse();
 
-  const { id } = context.params;
+  const { id } = await context.params;
 
   try {
     const payload = await request.json();
