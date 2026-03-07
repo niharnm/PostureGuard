@@ -1,3 +1,4 @@
+import { memo } from "react";
 import { motion } from "framer-motion";
 import { PostureState } from "@/lib/types";
 
@@ -16,7 +17,7 @@ function stateColor(state: PostureState) {
   return "bg-slate-600";
 }
 
-export function SessionInsights({ good, warn, bad, score, timeline }: Props) {
+function SessionInsightsBase({ good, warn, bad, score, timeline }: Props) {
   const displayTimeline: PostureState[] = timeline.length ? timeline : ["NO_PERSON"];
 
   return (
@@ -56,7 +57,7 @@ export function SessionInsights({ good, warn, bad, score, timeline }: Props) {
         <div className="flex h-4 w-full overflow-hidden rounded-full border border-slate-700/60 bg-slate-900/40">
           {displayTimeline.map((item, index) => (
             <div
-              key={`${item}-${index}`}
+              key={index}
               className={`${stateColor(item)} h-full transition-all`}
               style={{ width: `${100 / displayTimeline.length}%` }}
               title={item}
@@ -67,3 +68,5 @@ export function SessionInsights({ good, warn, bad, score, timeline }: Props) {
     </motion.section>
   );
 }
+
+export const SessionInsights = memo(SessionInsightsBase);

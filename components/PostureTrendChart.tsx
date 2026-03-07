@@ -1,5 +1,6 @@
 "use client";
 
+import { memo, useMemo } from "react";
 import { Line, LineChart, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
 import { TrendPoint } from "@/lib/types";
 
@@ -7,8 +8,8 @@ type Props = {
   points: TrendPoint[];
 };
 
-export function PostureTrendChart({ points }: Props) {
-  const data = points.length ? points : [{ elapsedSec: 0, score: 0, label: "0s" }];
+function PostureTrendChartBase({ points }: Props) {
+  const data = useMemo(() => (points.length ? points : [{ elapsedSec: 0, score: 0, label: "0s" }]), [points]);
 
   return (
     <section className="panel rounded-3xl p-5 sm:p-6">
@@ -49,3 +50,5 @@ export function PostureTrendChart({ points }: Props) {
     </section>
   );
 }
+
+export const PostureTrendChart = memo(PostureTrendChartBase);

@@ -1,6 +1,6 @@
 "use client";
 
-import { FormEvent, useMemo, useState } from "react";
+import { FormEvent, memo, useCallback, useMemo, useState } from "react";
 import { Bot, CornerDownLeft, Mic, Paperclip } from "lucide-react";
 import { VictorContextPayload } from "@/lib/types";
 import { Button } from "@/components/ui/button";
@@ -36,7 +36,7 @@ const AVATARS = {
   ai: "https://images.unsplash.com/photo-1494790108377-be9c29b29330?w=64&h=64&q=80&crop=faces&fit=crop"
 };
 
-export function VictorPanel({ context }: Props) {
+function VictorPanelBase({ context }: Props) {
   const [messages, setMessages] = useState<Message[]>([
     {
       id: 1,
@@ -53,7 +53,7 @@ export function VictorPanel({ context }: Props) {
     return `Live: ${context.state} (${context.score}%)`;
   }, [context.score, context.state, context.trackingStable]);
 
-  const sendPrompt = async (text: string) => {
+  const sendPrompt = useCallback(async (text: string) => {
     const question = text.trim();
     if (!question || isLoading) return;
 
@@ -100,12 +100,12 @@ export function VictorPanel({ context }: Props) {
     } finally {
       setIsLoading(false);
     }
-  };
+  }, [context, isLoading]);
 
-  const handleSubmit = (e: FormEvent) => {
+  const handleSubmit = useCallback((e: FormEvent) => {
     e.preventDefault();
     void sendPrompt(input);
-  };
+  }, [input, sendPrompt]);
 
   return (
     <ExpandableChat size="lg" position="bottom-right" icon={<Bot className="h-6 w-6" />}>
@@ -186,3 +186,5 @@ export function VictorPanel({ context }: Props) {
     </ExpandableChat>
   );
 }
+
+export const VictorPanel = memo(VictorPanelBase);

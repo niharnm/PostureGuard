@@ -1,10 +1,14 @@
 "use client";
 
+import { memo } from "react";
+
 type Props = {
   canvasRef: React.RefObject<HTMLCanvasElement | null>;
   className?: string;
 };
 
-export function PoseOverlayCanvas({ canvasRef, className }: Props) {
+function PoseOverlayCanvasBase({ canvasRef, className }: Props) {
   return <canvas ref={canvasRef} className={className} />;
 }
+
+export const PoseOverlayCanvas = memo(PoseOverlayCanvasBase);

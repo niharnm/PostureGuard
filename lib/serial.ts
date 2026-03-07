@@ -7,6 +7,8 @@ export type ArduinoConnection = {
   writer: WritableStreamDefaultWriter<Uint8Array>;
 };
 
+const encoder = new TextEncoder();
+
 export const isSerialSupported = () =>
   typeof navigator !== "undefined" && "serial" in navigator;
 
@@ -23,23 +25,33 @@ export async function connectArduino(baudRate = 9600): Promise<ArduinoConnection
 }
 
 export async function disconnectArduino(connection: ArduinoConnection) {
-  connection.writer.releaseLock();
+  try {
+    connection.writer.releaseLock();
+  } catch {
+    // Ignore lock-release issues during teardown.
+  }
   await connection.port.close();
+}
+
+export function mapPostureToArduinoSignal(state: PostureState): ArduinoSignal | null {
+  if (state === "NO_PERSON") return null;
+  return state;
+}
+
+export async function sendArduinoCommand(connection: ArduinoConnection, signal: ArduinoSignal) {
+  const payload = encoder.encode(`${signal}\n`);
+  await connection.writer.write(payload);
 }
 
 export async function sendPostureToArduino(
   connection: ArduinoConnection,
   state: PostureState
 ) {
-  if (state === "NO_PERSON") return;
-
-  const encoder = new TextEncoder();
-  const payload = encoder.encode(`${state}\n`);
-  await connection.writer.write(payload);
+  const signal = mapPostureToArduinoSignal(state);
+  if (!signal) return;
+  await sendArduinoCommand(connection, signal);
 }
 
 export async function sendBreakToArduino(connection: ArduinoConnection) {
-  const encoder = new TextEncoder();
-  const payload = encoder.encode("BREAK\n");
-  await connection.writer.write(payload);
+  await sendArduinoCommand(connection, "BREAK");
 }

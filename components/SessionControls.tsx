@@ -3,13 +3,28 @@
 type Props = {
   authenticated: boolean;
   active: boolean;
+  monitoringActive: boolean;
+  breakMode: boolean;
   elapsedLabel: string;
   calibrated: boolean;
   onStart: () => void;
   onEnd: () => void;
+  onBreak: () => void;
+  onResume: () => void;
 };
 
-export function SessionControls({ authenticated, active, elapsedLabel, calibrated, onStart, onEnd }: Props) {
+export function SessionControls({
+  authenticated,
+  active,
+  monitoringActive,
+  breakMode,
+  elapsedLabel,
+  calibrated,
+  onStart,
+  onEnd,
+  onBreak,
+  onResume
+}: Props) {
   return (
     <section className="panel rounded-3xl p-5 sm:p-6">
       <div className="flex flex-wrap items-center justify-between gap-4">
@@ -25,8 +40,12 @@ export function SessionControls({ authenticated, active, elapsedLabel, calibrate
           {authenticated && !calibrated ? (
             <p className="mt-1 text-xs text-amber-100">For best accuracy, calibrate posture first. You can still start now.</p>
           ) : null}
+          {breakMode ? (
+            <p className="mt-1 text-xs text-violet-100">Break Mode Active - camera tracking paused.</p>
+          ) : null}
+          <p className="mt-1 text-xs text-slate-500">End Session sends BREAK to Arduino and pauses tracking.</p>
         </div>
-        <div className="flex gap-2">
+        <div className="flex flex-wrap gap-2">
           <button
             onClick={onStart}
             disabled={!authenticated || active}
@@ -35,8 +54,15 @@ export function SessionControls({ authenticated, active, elapsedLabel, calibrate
             Start Session
           </button>
           <button
+            onClick={breakMode ? onResume : onBreak}
+            disabled={!monitoringActive && !breakMode}
+            className="rounded-xl border border-violet-300/40 bg-violet-400/10 px-4 py-2 text-sm font-semibold text-violet-100 disabled:cursor-not-allowed disabled:opacity-50"
+          >
+            {breakMode ? "Resume Tracking" : "Break"}
+          </button>
+          <button
             onClick={onEnd}
-            disabled={!authenticated || !active}
+            disabled={!monitoringActive && !active && !breakMode}
             className="rounded-xl border border-rose-300/40 bg-rose-400/10 px-4 py-2 text-sm font-semibold text-rose-100 disabled:cursor-not-allowed disabled:opacity-50"
           >
             End Session

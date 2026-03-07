@@ -1,5 +1,6 @@
 "use client";
 
+import { memo } from "react";
 import { PostureState } from "@/lib/types";
 
 type Props = {
@@ -22,7 +23,7 @@ function legendDot(label: string, className: string) {
   );
 }
 
-export function PostureHeatmapTimeline({ timeline }: Props) {
+function PostureHeatmapTimelineBase({ timeline }: Props) {
   const totalSlots = 120;
   const activeStates = timeline.slice(-totalSlots);
   const fillPercent = Math.min(100, Math.round((activeStates.length / totalSlots) * 100));
@@ -42,7 +43,7 @@ export function PostureHeatmapTimeline({ timeline }: Props) {
           const entry = activeStates[index];
           return (
           <div
-            key={`${entry ?? "EMPTY"}-${index}`}
+            key={index}
             className={`h-4 min-w-0 rounded-sm transition-colors ${entry ? stateStyle(entry) : "bg-slate-800/55"}`}
             title={entry ? `${index + 1}s: ${entry}` : "Pending"}
           />
@@ -58,3 +59,5 @@ export function PostureHeatmapTimeline({ timeline }: Props) {
     </section>
   );
 }
+
+export const PostureHeatmapTimeline = memo(PostureHeatmapTimelineBase);

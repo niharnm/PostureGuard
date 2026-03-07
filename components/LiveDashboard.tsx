@@ -1,16 +1,18 @@
+import { memo, useCallback, useEffect, useMemo, useState } from "react";
 import { motion } from "framer-motion";
 import { StatusBadge } from "@/components/StatusBadge";
+import { PoseOverlayCanvas } from "@/components/PoseOverlayCanvas";
 import {
   CalibrationPhase,
   CalibrationQuality,
   CalibrationState,
   PostureDebugData,
   PostureMetrics,
-  SnapshotMetrics,
-  PostureState
+  PostureState,
+  SnapshotMetrics
 } from "@/lib/types";
-import { useState } from "react";
-import { PoseOverlayCanvas } from "@/components/PoseOverlayCanvas";
+
+type ScoreTrend = "IMPROVING" | "STABLE" | "DECLINING";
 
 type Props = {
   videoRef: React.RefObject<HTMLVideoElement | null>;
@@ -32,8 +34,12 @@ type Props = {
   calibrationMessage: string | null;
   trackingStable: boolean;
   trackingConfidence: number;
+  breakMode: boolean;
   debugData: PostureDebugData;
+  debugEnabled: boolean;
+  scoreTrend: ScoreTrend;
   onCalibrate: () => void;
+  onDebugEnabledChange: (enabled: boolean) => void;
   canCalibrate: boolean;
   warningBanner: string | null;
   overlayMetrics: SnapshotMetrics;
@@ -44,9 +50,36 @@ function metricValue(value: number) {
 }
 
 function scoreColor(score: number) {
-  if (score >= 75) return "#55f5b5";
-  if (score >= 50) return "#f2c14f";
+  if (score >= 85) return "#55f5b5";
+  if (score >= 70) return "#c5f36a";
+  if (score >= 55) return "#f2c14f";
   return "#ff5d7d";
+}
+
+function scoreGrade(score: number) {
+  if (score >= 90) return "A";
+  if (score >= 80) return "B";
+  if (score >= 70) return "C";
+  if (score >= 60) return "D";
+  return "F";
+}
+
+function postureLabel(score: number) {
+  if (score >= 85) return "Great Posture";
+  if (score >= 70) return "Needs Work";
+  return "Poor Posture";
+}
+
+function trendLabel(trend: ScoreTrend) {
+  if (trend === "IMPROVING") return "Improving";
+  if (trend === "DECLINING") return "Declining";
+  return "Stable";
+}
+
+function trendTone(trend: ScoreTrend) {
+  if (trend === "IMPROVING") return "text-emerald-100 border-emerald-200/35 bg-emerald-300/20";
+  if (trend === "DECLINING") return "text-rose-100 border-rose-200/35 bg-rose-300/20";
+  return "text-sky-100 border-sky-200/35 bg-sky-300/20";
 }
 
 function calibrationStatusLabel(status: CalibrationState) {
@@ -61,7 +94,14 @@ function calibrationStatusTone(status: CalibrationState) {
   return "text-amber-100 border-amber-300/35 bg-amber-400/10";
 }
 
-export function LiveDashboard({
+function scoreCardTone(score: number) {
+  if (score >= 85) return "border-emerald-300/45 bg-gradient-to-br from-emerald-500/30 via-emerald-400/10 to-slate-950";
+  if (score >= 70) return "border-lime-300/45 bg-gradient-to-br from-lime-500/25 via-lime-300/10 to-slate-950";
+  if (score >= 55) return "border-amber-300/45 bg-gradient-to-br from-amber-500/25 via-amber-300/10 to-slate-950";
+  return "border-rose-300/45 bg-gradient-to-br from-rose-500/25 via-rose-300/10 to-slate-950";
+}
+
+function LiveDashboardBase({
   videoRef,
   canvasRef,
   state,
@@ -81,26 +121,55 @@ export function LiveDashboard({
   calibrationMessage,
   trackingStable,
   trackingConfidence,
+  breakMode,
   debugData,
+  debugEnabled,
+  scoreTrend,
   onCalibrate,
+  onDebugEnabledChange,
   canCalibrate,
   warningBanner,
   overlayMetrics
 }: Props) {
-  const [showDebug, setShowDebug] = useState(false);
-  const statusText = error
-    ? error
-    : !cameraReady
-      ? "Camera idle"
-      : state === "NO_PERSON"
-        ? "No person in frame"
-        : trackingStable
-          ? "Tracking active"
-          : "Tracking unstable";
+  const [showDebug, setShowDebug] = useState(debugEnabled);
 
-  const radius = 45;
-  const circumference = 2 * Math.PI * radius;
-  const dashOffset = circumference - (circumference * score) / 100;
+  useEffect(() => {
+    setShowDebug(debugEnabled);
+  }, [debugEnabled]);
+
+  useEffect(() => {
+    onDebugEnabledChange(showDebug);
+  }, [onDebugEnabledChange, showDebug]);
+
+  const statusText = useMemo(() => {
+    if (error) return error;
+    if (!cameraReady) return "Camera idle";
+    if (state === "NO_PERSON") return "No person in frame";
+    if (breakMode) return "Break mode active";
+    return trackingStable ? "Tracking stable" : "Tracking unstable";
+  }, [breakMode, cameraReady, error, state, trackingStable]);
+
+  const scoreRing = useMemo(() => {
+    const radius = 64;
+    const center = 76;
+    const size = 152;
+    const circumference = 2 * Math.PI * radius;
+    const dashOffset = circumference - (circumference * score) / 100;
+    return { radius, center, size, circumference, dashOffset };
+  }, [score]);
+
+  const scoreMeta = useMemo(() => {
+    return {
+      color: scoreColor(score),
+      grade: scoreGrade(score),
+      label: postureLabel(score),
+      trend: trendLabel(scoreTrend)
+    };
+  }, [score, scoreTrend]);
+
+  const toggleDebug = useCallback(() => {
+    setShowDebug((prev) => !prev);
+  }, []);
 
   return (
     <section id="dashboard" className="grid gap-6 lg:grid-cols-[1.35fr_1fr]">
@@ -129,9 +198,7 @@ export function LiveDashboard({
             canvasRef={canvasRef}
             className="pointer-events-none absolute inset-0 h-full w-full scale-x-[-1]"
           />
-          <div className="absolute left-3 top-3 rounded-lg bg-slate-900/80 px-3 py-2 text-xs text-slate-200">
-            {statusText}
-          </div>
+          <div className="absolute left-3 top-3 rounded-lg bg-slate-900/80 px-3 py-2 text-xs text-slate-200">{statusText}</div>
           {isCalibrating ? (
             <div className="absolute inset-0 grid place-items-center bg-slate-950/62 p-4">
               <div className="w-full max-w-sm rounded-2xl border border-cyan-300/35 bg-slate-950/90 p-4 text-cyan-50 shadow-2xl">
@@ -162,7 +229,16 @@ export function LiveDashboard({
               </div>
             </div>
           ) : null}
+          {breakMode ? (
+            <div className="absolute inset-0 grid place-items-center bg-slate-950/70 p-4">
+              <div className="rounded-2xl border border-violet-300/40 bg-violet-400/15 px-5 py-4 text-center">
+                <p className="text-xs uppercase tracking-[0.16em] text-violet-100">Break Mode Active</p>
+                <p className="mt-1 text-sm text-violet-50">Camera tracking paused.</p>
+              </div>
+            </div>
+          ) : null}
         </div>
+
         <div className="mt-3 grid gap-2 sm:grid-cols-3">
           <div className="rounded-lg border border-slate-700/45 bg-slate-900/55 px-3 py-2">
             <p className="text-[11px] uppercase tracking-[0.14em] text-slate-400">Head Tilt</p>
@@ -170,50 +246,34 @@ export function LiveDashboard({
           </div>
           <div className="rounded-lg border border-slate-700/45 bg-slate-900/55 px-3 py-2">
             <p className="text-[11px] uppercase tracking-[0.14em] text-slate-400">Shoulder Imbalance</p>
-            <p className="font-[var(--font-jetbrains)] text-base text-white">
-              {overlayMetrics.shoulderBalanceDeg.toFixed(1)} deg
-            </p>
+            <p className="font-[var(--font-jetbrains)] text-base text-white">{overlayMetrics.shoulderBalanceDeg.toFixed(1)} deg</p>
           </div>
           <div className="rounded-lg border border-slate-700/45 bg-slate-900/55 px-3 py-2">
             <p className="text-[11px] uppercase tracking-[0.14em] text-slate-400">Forward Head Distance</p>
-            <p className="font-[var(--font-jetbrains)] text-base text-white">
-              {Math.round(overlayMetrics.forwardHeadDistancePx)} px
-            </p>
+            <p className="font-[var(--font-jetbrains)] text-base text-white">{Math.round(overlayMetrics.forwardHeadDistancePx)} px</p>
           </div>
         </div>
         <p className="mt-3 text-xs text-slate-400">
-          Model: {modelStatus} | Tracking Confidence: {(trackingConfidence * 100).toFixed(0)}% | Calibration Status:{" "}
-          {calibrationStatus === "CALIBRATED"
-            ? "Calibrated successfully"
-            : calibrationStatus === "CALIBRATING"
-              ? "Calibrating"
-              : "Not calibrated"}
+          Model: {modelStatus} | Tracking Confidence: {(trackingConfidence * 100).toFixed(0)}% | Tracking: {trackingStable ? "Stable" : "Unstable"}
         </p>
         {calibratedAt ? (
           <p className="mt-1 text-xs text-emerald-200">Personal baseline saved: {new Date(calibratedAt).toLocaleString()}</p>
         ) : null}
-        {calibrationStatus === "CALIBRATED" ? (
-          <p className="mt-1 text-xs text-slate-300">Baseline captured from your current camera position.</p>
-        ) : null}
         {calibrationQuality && calibrationStatus === "CALIBRATED" ? (
           <p className="mt-1 text-xs text-slate-300">
-            Calibration quality: {Math.round(calibrationQuality.stabilityScore * 100)}% stability from{" "}
-            {calibrationQuality.goodFrames}/{calibrationQuality.totalFrames} good frames.
+            Calibration quality: {Math.round(calibrationQuality.stabilityScore * 100)}% stability from {calibrationQuality.goodFrames}/
+            {calibrationQuality.totalFrames} good frames.
           </p>
         ) : null}
         {warningBanner ? (
-          <div className="mt-2 rounded-lg border border-danger/35 bg-danger/15 px-3 py-2 text-xs text-red-100">
-            {warningBanner}
-          </div>
+          <div className="mt-2 rounded-lg border border-danger/35 bg-danger/15 px-3 py-2 text-xs text-red-100">{warningBanner}</div>
         ) : null}
         {calibrationMessage ? <p className="mt-1 text-xs text-cyan-200">{calibrationMessage}</p> : null}
         {calibrationStatus === "NOT_CALIBRATED" && cameraReady ? (
           <p className="mt-1 text-xs text-amber-100">For best accuracy, calibrate posture before starting a session.</p>
         ) : null}
         {!canCalibrate ? (
-          <p className="mt-1 text-xs text-slate-400">
-            You can calibrate in demo mode. Sign in to save calibration for your account.
-          </p>
+          <p className="mt-1 text-xs text-slate-400">You can calibrate in demo mode. Sign in to save calibration for your account.</p>
         ) : null}
       </div>
 
@@ -223,32 +283,64 @@ export function LiveDashboard({
         viewport={{ once: true }}
         className="space-y-6"
       >
-        <div className="panel rounded-3xl p-6">
-          <h3 className="text-sm uppercase tracking-[0.2em] text-slate-400">Live Score</h3>
-          <div className="mt-4 flex items-center gap-4">
-            <div className="relative h-24 w-24">
-              <svg viewBox="0 0 100 100" className="h-24 w-24 -rotate-90">
-                <circle cx="50" cy="50" r={radius} strokeWidth="8" fill="none" className="stroke-slate-800" />
+        <div className={`panel rounded-3xl border p-6 text-center ${scoreCardTone(score)}`}>
+          <p className="text-xs uppercase tracking-[0.24em] text-slate-200">Live Posture Score</p>
+          <div className="mt-4 flex flex-col items-center gap-4">
+            <div className="relative h-40 w-40 sm:h-[152px] sm:w-[152px]">
+              <svg viewBox={`0 0 ${scoreRing.size} ${scoreRing.size}`} className="h-full w-full -rotate-90">
                 <circle
-                  cx="50"
-                  cy="50"
-                  r={radius}
-                  strokeWidth="8"
+                  cx={scoreRing.center}
+                  cy={scoreRing.center}
+                  r={scoreRing.radius}
+                  strokeWidth="10"
+                  fill="none"
+                  className="stroke-slate-900/70"
+                />
+                <circle
+                  cx={scoreRing.center}
+                  cy={scoreRing.center}
+                  r={scoreRing.radius}
+                  strokeWidth="10"
                   fill="none"
                   strokeLinecap="round"
-                  stroke={scoreColor(score)}
-                  strokeDasharray={circumference}
-                  strokeDashoffset={dashOffset}
+                  stroke={scoreMeta.color}
+                  strokeDasharray={scoreRing.circumference}
+                  strokeDashoffset={scoreRing.dashOffset}
                   className="transition-all duration-300"
                 />
               </svg>
-              <div className="absolute inset-0 grid place-items-center text-2xl font-bold text-white">{score}</div>
+              <div className="absolute inset-0 grid place-items-center">
+                <div>
+                  <p className="text-5xl font-bold leading-none text-white">{score}</p>
+                  <p className="mt-1 text-sm font-semibold text-slate-200">Grade {scoreMeta.grade}</p>
+                </div>
+              </div>
             </div>
-            <div>
-              <p className="text-xl font-semibold text-white">Posture Score</p>
-              <p className="text-sm text-slate-300">Deviation-from-baseline scoring with smoothing and hysteresis.</p>
+            <div className="space-y-1">
+              <p className="text-2xl font-semibold text-white">{scoreMeta.label}</p>
+              <span className={`inline-flex rounded-full border px-3 py-1 text-xs uppercase tracking-[0.15em] ${trendTone(scoreTrend)}`}>
+                Trend: {scoreMeta.trend}
+              </span>
+              <p className="text-xs text-slate-300">Judge view: larger score with grade and status for fast readability.</p>
             </div>
           </div>
+        </div>
+
+        <div className="panel rounded-3xl p-6">
+          <div className="flex items-center justify-between">
+            <h3 className="text-sm uppercase tracking-[0.2em] text-slate-400">Calibration Quick Access</h3>
+            <span className={`rounded-md border px-2 py-1 text-[11px] font-semibold uppercase tracking-[0.12em] ${calibrationStatusTone(calibrationStatus)}`}>
+              {calibrationStatusLabel(calibrationStatus)}
+            </span>
+          </div>
+          <p className="mt-2 text-sm text-slate-300">Calibration stays visible here so it is not buried during demo flow.</p>
+          <button
+            onClick={onCalibrate}
+            disabled={!cameraReady || isCalibrating}
+            className="mt-3 w-full rounded-xl border border-cyan-300/35 bg-cyan-300/15 px-4 py-2 text-sm font-semibold text-cyan-50 disabled:cursor-not-allowed disabled:opacity-50"
+          >
+            {isCalibrating ? "Calibrating..." : "Run Calibration"}
+          </button>
         </div>
 
         <div className="panel rounded-3xl p-6">
@@ -265,10 +357,7 @@ export function LiveDashboard({
         <div className="panel rounded-3xl p-6">
           <div className="mb-3 flex items-center justify-between">
             <h3 className="text-sm uppercase tracking-[0.2em] text-slate-400">Developer Metrics</h3>
-            <button
-              onClick={() => setShowDebug((prev) => !prev)}
-              className="rounded-md border border-slate-600/50 px-2 py-1 text-xs text-slate-200"
-            >
+            <button onClick={toggleDebug} className="rounded-md border border-slate-600/50 px-2 py-1 text-xs text-slate-200">
               {showDebug ? "Hide" : "Show"}
             </button>
           </div>
@@ -300,50 +389,31 @@ export function LiveDashboard({
                 <div className="rounded-lg border border-slate-700/45 bg-slate-900/35 p-2">
                   <p className="text-slate-400">Live Metrics</p>
                   <p className="font-[var(--font-jetbrains)]">
-                    {metricValue(debugData.rawMetrics.forwardHeadOffset)} / {metricValue(debugData.rawMetrics.shoulderImbalance)} /{" "}
-                    {metricValue(debugData.rawMetrics.headTilt)} / {metricValue(debugData.rawMetrics.torsoLean)}
+                    {metricValue(debugData.rawMetrics.forwardHeadOffset)} / {metricValue(debugData.rawMetrics.shoulderImbalance)} / {metricValue(debugData.rawMetrics.headTilt)} / {metricValue(debugData.rawMetrics.torsoLean)}
                   </p>
                 </div>
                 <div className="rounded-lg border border-slate-700/45 bg-slate-900/35 p-2">
                   <p className="text-slate-400">Deviation</p>
                   <p className="font-[var(--font-jetbrains)]">
-                    {metricValue(debugData.deviation.forwardHeadOffset)} / {metricValue(debugData.deviation.shoulderImbalance)} /{" "}
-                    {metricValue(debugData.deviation.headTilt)} / {metricValue(debugData.deviation.torsoLean)}
+                    {metricValue(debugData.deviation.forwardHeadOffset)} / {metricValue(debugData.deviation.shoulderImbalance)} / {metricValue(debugData.deviation.headTilt)} / {metricValue(debugData.deviation.torsoLean)}
                   </p>
                 </div>
                 <div className="rounded-lg border border-slate-700/45 bg-slate-900/35 p-2">
                   <p className="text-slate-400">Live Extras</p>
                   <p className="font-[var(--font-jetbrains)]">
-                    {metricValue(debugData.rawExtras.noseShoulderOffset)} / {debugData.rawExtras.upperBodySymmetry.toFixed(2)} /{" "}
-                    {(debugData.rawExtras.visibility * 100).toFixed(0)}%
+                    {metricValue(debugData.rawExtras.noseShoulderOffset)} / {debugData.rawExtras.upperBodySymmetry.toFixed(2)} / {(debugData.rawExtras.visibility * 100).toFixed(0)}%
                   </p>
                 </div>
                 <div className="rounded-lg border border-slate-700/45 bg-slate-900/35 p-2">
                   <p className="text-slate-400">Extra Deviation</p>
                   <p className="font-[var(--font-jetbrains)]">
-                    {metricValue(debugData.deviationExtras.noseShoulderOffset)} / {debugData.deviationExtras.upperBodySymmetry.toFixed(2)} /{" "}
-                    {(debugData.deviationExtras.visibility * 100).toFixed(0)}%
-                  </p>
-                </div>
-                <div className="rounded-lg border border-slate-700/45 bg-slate-900/35 p-2">
-                  <p className="text-slate-400">Penalty Weights</p>
-                  <p className="font-[var(--font-jetbrains)]">
-                    {debugData.penalties.forwardHeadOffset.toFixed(1)} / {debugData.penalties.shoulderImbalance.toFixed(1)} /{" "}
-                    {debugData.penalties.headTilt.toFixed(1)} / {debugData.penalties.torsoLean.toFixed(1)}
-                  </p>
-                </div>
-                <div className="rounded-lg border border-slate-700/45 bg-slate-900/35 p-2">
-                  <p className="text-slate-400">Calibration Quality</p>
-                  <p className="font-[var(--font-jetbrains)]">
-                    {debugData.calibrationQuality
-                      ? `${Math.round(debugData.calibrationQuality.stabilityScore * 100)}% / ${debugData.calibrationQuality.goodFrames} good`
-                      : "N/A"}
+                    {metricValue(debugData.deviationExtras.noseShoulderOffset)} / {debugData.deviationExtras.upperBodySymmetry.toFixed(2)} / {(debugData.deviationExtras.visibility * 100).toFixed(0)}%
                   </p>
                 </div>
               </div>
             </div>
           ) : (
-            <p className="text-xs text-slate-400">Hidden by default. Use for tuning posture accuracy.</p>
+            <p className="text-xs text-slate-400">Debug metrics are paused while hidden for performance.</p>
           )}
         </div>
 
@@ -372,3 +442,5 @@ export function LiveDashboard({
     </section>
   );
 }
+
+export const LiveDashboard = memo(LiveDashboardBase);

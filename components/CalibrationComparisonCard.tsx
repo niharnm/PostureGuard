@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef } from "react";
+import { memo, useEffect, useRef } from "react";
 import { PostureSnapshot } from "@/lib/types";
 
 type Props = {
@@ -19,7 +19,7 @@ function metricRow(label: string, value: number | null, suffix = "deg") {
   );
 }
 
-export function CalibrationComparisonCard({ calibration, current }: Props) {
+function CalibrationComparisonCardBase({ calibration, current }: Props) {
   return (
     <section className="panel rounded-3xl p-5 sm:p-6">
       <div className="mb-4 flex items-center justify-between gap-3">
@@ -126,3 +126,5 @@ function SnapshotPoseCanvas({ snapshot, label }: { snapshot: PostureSnapshot; la
 
   return <canvas ref={canvasRef} aria-label={label} className="h-44 w-full rounded-2xl border border-slate-700/50 object-cover" />;
 }
+
+export const CalibrationComparisonCard = memo(CalibrationComparisonCardBase);

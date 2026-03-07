@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { motion } from "framer-motion";
 import { useSession } from "next-auth/react";
 import { Hero } from "@/components/Hero";
@@ -34,14 +34,33 @@ export default function HomePage() {
   });
   const arduino = useArduinoSerial();
 
+  const handleBreak = useCallback(async () => {
+    monitor.pauseMonitoringForBreak();
+    await arduino.triggerBreak();
+  }, [arduino.triggerBreak, monitor.pauseMonitoringForBreak]);
+
+  const handleResume = useCallback(async () => {
+    await monitor.resumeMonitoringFromBreak();
+  }, [monitor.resumeMonitoringFromBreak]);
+
+  const handleEndFlow = useCallback(async () => {
+    if (monitor.isSessionActive) {
+      await monitor.endSession();
+    }
+    monitor.pauseMonitoringForBreak();
+    await arduino.triggerBreak();
+  }, [arduino.triggerBreak, monitor.endSession, monitor.isSessionActive, monitor.pauseMonitoringForBreak]);
+
   useEffect(() => {
+    if (monitor.isBreakMode) return;
     arduino.sendState(monitor.state);
-  }, [arduino.sendState, monitor.state]);
+  }, [arduino.sendState, monitor.isBreakMode, monitor.state]);
 
   useEffect(() => {
     if (!monitor.alertBanner) return;
+    if (monitor.isBreakMode) return;
     void arduino.triggerBreak();
-  }, [arduino.triggerBreak, monitor.alertBanner]);
+  }, [arduino.triggerBreak, monitor.alertBanner, monitor.isBreakMode]);
 
   useEffect(() => {
     if (authenticated) {
@@ -51,10 +70,10 @@ export default function HomePage() {
 
   const inDashboard = useMemo(() => authenticated || demoMode, [authenticated, demoMode]);
 
-  const enterDemoMode = () => {
+  const enterDemoMode = useCallback(() => {
     setDemoMode(true);
     void monitor.startMonitoring();
-  };
+  }, [monitor.startMonitoring]);
 
   if (status === "loading") {
     return (
@@ -91,16 +110,18 @@ export default function HomePage() {
           </section>
         ) : null}
         <AuthPanel />
-        {authenticated ? (
-          <SessionControls
-            authenticated={authenticated}
-            active={monitor.isSessionActive}
-            elapsedLabel={formatDuration(monitor.sessionElapsedMs)}
-            calibrated={monitor.calibrationStatus === "CALIBRATED"}
-            onStart={monitor.startSession}
-            onEnd={monitor.endSession}
-          />
-        ) : null}
+        <SessionControls
+          authenticated={authenticated}
+          active={monitor.isSessionActive}
+          monitoringActive={monitor.cameraReady}
+          breakMode={monitor.isBreakMode}
+          elapsedLabel={formatDuration(monitor.sessionElapsedMs)}
+          calibrated={monitor.calibrationStatus === "CALIBRATED"}
+          onStart={monitor.startSession}
+          onEnd={handleEndFlow}
+          onBreak={handleBreak}
+          onResume={handleResume}
+        />
 
         <motion.div
           initial={{ opacity: 0, y: 16 }}
@@ -128,8 +149,12 @@ export default function HomePage() {
             calibrationMessage={monitor.calibrationMessage}
             trackingStable={monitor.trackingStable}
             trackingConfidence={monitor.trackingConfidence}
+            breakMode={monitor.isBreakMode}
             debugData={monitor.debugData}
+            debugEnabled={monitor.debugEnabled}
+            scoreTrend={monitor.scoreTrend}
             onCalibrate={monitor.beginCalibration}
+            onDebugEnabledChange={monitor.setDebugEnabled}
             canCalibrate={authenticated}
             warningBanner={monitor.alertBanner}
             overlayMetrics={monitor.overlayMetrics}
@@ -179,10 +204,18 @@ export default function HomePage() {
           <ArduinoCard
             supported={arduino.supported}
             status={arduino.status}
+            connectionLabel={arduino.connectionLabel}
             error={arduino.error}
             lastSent={arduino.lastSent}
+            hardwareState={arduino.hardwareState}
+            lastWriteStatus={arduino.lastWriteStatus}
+            lastWriteMessage={arduino.lastWriteMessage}
+            lastWriteAt={arduino.lastWriteAt}
             onConnect={arduino.connect}
             onDisconnect={arduino.disconnect}
+            onManualSend={(signal) => {
+              void arduino.sendManual(signal);
+            }}
           />
         </motion.div>
       </div>

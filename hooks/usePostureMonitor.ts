@@ -40,6 +40,21 @@ type HookOptions = {
   userId?: string;
 };
 
+type ScoreTrend = "IMPROVING" | "STABLE" | "DECLINING";
+
+type FrameUiState = {
+  state: PostureState;
+  score: number;
+  metrics: PostureMetrics;
+  tips: string[];
+  overlayMetrics: SnapshotMetrics;
+  trackingConfidence: number;
+  trackingStable: boolean;
+  debugData: PostureDebugData;
+  dominantIssue: string | null;
+};
+type FrameUiUpdater = (prev: FrameUiState) => FrameUiState;
+
 type CalibrationSample = {
   metrics: PostureMetrics;
   extras: CalibrationExtraMetrics;
@@ -97,6 +112,21 @@ const DEFAULT_DEBUG: PostureDebugData = {
   calibrationQuality: null
 };
 
+const DEFAULT_TIPS = ["Press Start Monitoring to begin real-time posture tracking."];
+const NO_PERSON_TIPS = ["No person detected. Sit in frame and face the camera."];
+
+const DEFAULT_FRAME_UI: FrameUiState = {
+  state: "NO_PERSON",
+  score: 0,
+  metrics: FALLBACK_METRICS,
+  tips: DEFAULT_TIPS,
+  overlayMetrics: DEFAULT_ALIGNMENT_METRICS,
+  trackingConfidence: 0,
+  trackingStable: true,
+  debugData: DEFAULT_DEBUG,
+  dominantIssue: null
+};
+
 const KEY_VISIBILITY_POINTS = [7, 8, 11, 12, 23, 24];
 const SCORE_WINDOW_SIZE = 32;
 const STATE_THRESHOLD = {
@@ -128,6 +158,7 @@ const BAD_ALERT_DELAY_MS = 10_000;
 const TREND_PUSH_INTERVAL_MS = 2_000;
 const SNAPSHOT_INTERVAL_MS = 1_800;
 const OVERLAY_METRIC_PUSH_INTERVAL_MS = 220;
+const UI_FLUSH_INTERVAL_MS = 150;
 const METRIC_SMOOTH_ALPHA_STABLE = 0.22;
 const METRIC_SMOOTH_ALPHA_UNSTABLE = 0.08;
 const SCORE_STEP_STABLE = 1.2;
@@ -353,16 +384,17 @@ export function usePostureMonitor({ isAuthenticated, userId }: HookOptions) {
   const snapshotLastCaptureRef = useRef<number | null>(null);
   const overlayMetricsLastPushRef = useRef<number | null>(null);
   const latestLandmarksRef = useRef<{ x: number; y: number }[] | null>(null);
+  const overlayCanvasSizeRef = useRef<{ width: number; height: number }>({ width: 0, height: 0 });
+  const uiLastFlushRef = useRef(0);
+  const debugEnabledRef = useRef(false);
+  const goodStreakLastPushRef = useRef<number | null>(null);
+  const badDurationLastPushRef = useRef<number | null>(null);
 
   const [modelStatus, setModelStatus] = useState<ModelStatus>("IDLE");
   const [cameraReady, setCameraReady] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [state, setState] = useState<PostureState>("NO_PERSON");
-  const [score, setScore] = useState(0);
-  const [tips, setTips] = useState<string[]>([
-    "Press Start Monitoring to begin real-time posture tracking."
-  ]);
-  const [metrics, setMetrics] = useState<PostureMetrics>(FALLBACK_METRICS);
+  const [frameUi, setFrameUi] = useState<FrameUiState>(DEFAULT_FRAME_UI);
+  const [debugEnabled, setDebugEnabled] = useState(false);
   const [stats, setStats] = useState<SessionStats>(DEFAULT_STATS);
   const [timeline, setTimeline] = useState<PostureState[]>([]);
   const [calibrationProgress, setCalibrationProgress] = useState(0);
@@ -372,10 +404,7 @@ export function usePostureMonitor({ isAuthenticated, userId }: HookOptions) {
   const [calibrationQuality, setCalibrationQuality] = useState<CalibrationQuality | null>(null);
   const [calibratedAt, setCalibratedAt] = useState<number | null>(null);
   const [calibrationMessage, setCalibrationMessage] = useState<string | null>(null);
-  const [trackingConfidence, setTrackingConfidence] = useState(0);
-  const [trackingStable, setTrackingStable] = useState(true);
-  const [debugData, setDebugData] = useState<PostureDebugData>(DEFAULT_DEBUG);
-  const [dominantIssue, setDominantIssue] = useState<string | null>(null);
+  const [isBreakMode, setIsBreakMode] = useState(false);
 
   const [isSessionActive, setIsSessionActive] = useState(false);
   const [sessionElapsedMs, setSessionElapsedMs] = useState(0);
@@ -388,7 +417,6 @@ export function usePostureMonitor({ isAuthenticated, userId }: HookOptions) {
   const [soundAlertEnabled, setSoundAlertEnabled] = useState(true);
   const [calibrationSnapshot, setCalibrationSnapshot] = useState<PostureSnapshot | null>(null);
   const [currentSnapshot, setCurrentSnapshot] = useState<PostureSnapshot | null>(null);
-  const [overlayMetrics, setOverlayMetrics] = useState<SnapshotMetrics>(DEFAULT_ALIGNMENT_METRICS);
 
   const loadPersistedData = useCallback(async () => {
     if (!isAuthenticated || !userId) {
@@ -452,6 +480,10 @@ export function usePostureMonitor({ isAuthenticated, userId }: HookOptions) {
     void loadPersistedData();
   }, [loadPersistedData]);
 
+  useEffect(() => {
+    debugEnabledRef.current = debugEnabled;
+  }, [debugEnabled]);
+
   const maybeRequestNotificationPermission = useCallback(async () => {
     if (typeof window === "undefined" || !("Notification" in window)) return;
     if (Notification.permission === "default") {
@@ -508,20 +540,24 @@ export function usePostureMonitor({ isAuthenticated, userId }: HookOptions) {
     } satisfies PostureSnapshot;
   }, []);
 
-  const drawOverlay = useCallback((landmarks: { x: number; y: number }[] | null, label: PostureState, now: number) => {
+  const drawOverlay = useCallback((landmarks: { x: number; y: number }[] | null, label: PostureState) => {
     const canvas = canvasRef.current;
     const video = videoRef.current;
-    if (!canvas || !video) return;
+    if (!canvas || !video) return DEFAULT_ALIGNMENT_METRICS;
 
     const width = video.videoWidth;
     const height = video.videoHeight;
-    if (!width || !height) return;
+    if (!width || !height) return DEFAULT_ALIGNMENT_METRICS;
 
-    canvas.width = width;
-    canvas.height = height;
+    if (overlayCanvasSizeRef.current.width !== width || overlayCanvasSizeRef.current.height !== height) {
+      // Avoid resetting the canvas bitmap on every frame.
+      canvas.width = width;
+      canvas.height = height;
+      overlayCanvasSizeRef.current = { width, height };
+    }
 
     const ctx = canvas.getContext("2d");
-    if (!ctx) return;
+    if (!ctx) return DEFAULT_ALIGNMENT_METRICS;
 
     ctx.clearRect(0, 0, width, height);
 
@@ -532,24 +568,10 @@ export function usePostureMonitor({ isAuthenticated, userId }: HookOptions) {
       ctx.font = '600 18px "Space Grotesk", sans-serif';
       ctx.textAlign = "center";
       ctx.fillText("No person detected", width / 2, height / 2);
-      if (
-        !overlayMetricsLastPushRef.current ||
-        now - overlayMetricsLastPushRef.current >= OVERLAY_METRIC_PUSH_INTERVAL_MS
-      ) {
-        setOverlayMetrics(DEFAULT_ALIGNMENT_METRICS);
-        overlayMetricsLastPushRef.current = now;
-      }
-      return;
+      return DEFAULT_ALIGNMENT_METRICS;
     }
 
     const alignment = computeAlignmentMetrics(landmarks, width);
-    if (
-      !overlayMetricsLastPushRef.current ||
-      now - overlayMetricsLastPushRef.current >= OVERLAY_METRIC_PUSH_INTERVAL_MS
-    ) {
-      setOverlayMetrics(alignment);
-      overlayMetricsLastPushRef.current = now;
-    }
 
     const nose = landmarks[0];
     const leftEar = landmarks[7];
@@ -615,6 +637,15 @@ export function usePostureMonitor({ isAuthenticated, userId }: HookOptions) {
     ctx.fillText(`Head tilt: ${alignment.headAlignmentDeg.toFixed(1)} deg`, 18, height - 62);
     ctx.fillText(`Shoulder imbalance: ${alignment.shoulderBalanceDeg.toFixed(1)} deg`, 18, height - 40);
     ctx.fillText(`Forward head distance: ${Math.round(alignment.forwardHeadDistancePx)} px`, 18, height - 18);
+    return alignment;
+  }, []);
+
+  const flushFrameUi = useCallback((updater: FrameUiUpdater, now: number, force = false) => {
+    if (!force && uiLastFlushRef.current !== 0 && now - uiLastFlushRef.current < UI_FLUSH_INTERVAL_MS) {
+      return;
+    }
+    uiLastFlushRef.current = now;
+    setFrameUi(updater);
   }, []);
 
   const updateSessionStats = useCallback((nextState: PostureState, nextScore: number, now: number) => {
@@ -681,16 +712,26 @@ export function usePostureMonitor({ isAuthenticated, userId }: HookOptions) {
 
     if (nextState === "GOOD") {
       if (!goodStreakStartedAtRef.current) goodStreakStartedAtRef.current = now;
-      setGoodStreakMs(Math.max(0, now - goodStreakStartedAtRef.current));
+      const nextGoodStreak = Math.max(0, now - goodStreakStartedAtRef.current);
+      if (!goodStreakLastPushRef.current || now - goodStreakLastPushRef.current >= 250) {
+        setGoodStreakMs(nextGoodStreak);
+        goodStreakLastPushRef.current = now;
+      }
     } else {
       goodStreakStartedAtRef.current = null;
-      setGoodStreakMs(0);
+      if (goodStreakLastPushRef.current !== 0) {
+        setGoodStreakMs(0);
+        goodStreakLastPushRef.current = 0;
+      }
     }
 
     if (nextState === "BAD") {
       if (!badSinceRef.current) badSinceRef.current = now;
       const badDuration = Math.max(0, now - badSinceRef.current);
-      setBadPostureMs(badDuration);
+      if (!badDurationLastPushRef.current || now - badDurationLastPushRef.current >= 250) {
+        setBadPostureMs(badDuration);
+        badDurationLastPushRef.current = now;
+      }
       if (badDuration >= BAD_ALERT_DELAY_MS && !badAlertSentRef.current) {
         const message = "You've broken your posture streak.";
         setAlertBanner(message);
@@ -701,7 +742,10 @@ export function usePostureMonitor({ isAuthenticated, userId }: HookOptions) {
     } else {
       badSinceRef.current = null;
       badAlertSentRef.current = false;
-      setBadPostureMs(0);
+      if (badDurationLastPushRef.current !== 0) {
+        setBadPostureMs(0);
+        badDurationLastPushRef.current = 0;
+      }
       setAlertBanner(null);
     }
 
@@ -724,9 +768,28 @@ export function usePostureMonitor({ isAuthenticated, userId }: HookOptions) {
     monitoringStartedAtRef.current = null;
     setBadPostureMs(0);
     setAlertBanner(null);
-    setOverlayMetrics(DEFAULT_ALIGNMENT_METRICS);
+    overlayCanvasSizeRef.current = { width: 0, height: 0 };
+    setFrameUi((prev) => ({
+      ...prev,
+      trackingConfidence: 0,
+      trackingStable: false,
+      overlayMetrics: DEFAULT_ALIGNMENT_METRICS
+    }));
     overlayMetricsLastPushRef.current = null;
+    uiLastFlushRef.current = 0;
   }, []);
+
+  const pauseMonitoringForBreak = useCallback(() => {
+    stopMonitoring();
+    setIsBreakMode(true);
+    setFrameUi((prev) => ({
+      ...prev,
+      tips: [
+        "Break Mode Active - camera tracking paused.",
+        "Stand up, stretch, and click Resume Tracking when ready."
+      ]
+    }));
+  }, [stopMonitoring]);
 
   const beginCalibration = useCallback(() => {
     if (!cameraReady) {
@@ -744,10 +807,13 @@ export function usePostureMonitor({ isAuthenticated, userId }: HookOptions) {
     setCalibrationQuality(null);
     setCalibrationMessage("Sit in your straight, ideal posture. Hold still for 10 seconds while we learn your baseline.");
     setCalibrationProgress(0);
-    setTips([
-      "Sit in your straight, ideal posture.",
-      "Keep your shoulders level, head upright, and hold still for 10 seconds."
-    ]);
+    setFrameUi((prev) => ({
+      ...prev,
+      tips: [
+        "Sit in your straight, ideal posture.",
+        "Keep your shoulders level, head upright, and hold still for 10 seconds."
+      ]
+    }));
   }, [cameraReady]);
 
   const finalizeCalibration = useCallback(async () => {
@@ -798,9 +864,10 @@ export function usePostureMonitor({ isAuthenticated, userId }: HookOptions) {
           : "Calibration failed. Please sit still in a straight posture and try again."
       );
       setCalibrationProgress(0);
-      setTips([
-        "Calibration failed. Sit upright, keep shoulders visible, and hold still before trying again."
-      ]);
+      setFrameUi((prev) => ({
+        ...prev,
+        tips: ["Calibration failed. Sit upright, keep shoulders visible, and hold still before trying again."]
+      }));
       return;
     }
 
@@ -858,7 +925,10 @@ export function usePostureMonitor({ isAuthenticated, userId }: HookOptions) {
       setCalibrationMessage("Calibration complete for this demo session. Baseline captured from current camera position.");
     }
 
-    setTips(["Calibration complete. Posture scoring now tracks deviation from your baseline."]);
+    setFrameUi((prev) => ({
+      ...prev,
+      tips: ["Calibration complete. Posture scoring now tracks deviation from your baseline."]
+    }));
   }, [captureSnapshot, isAuthenticated]);
 
   const startSession = useCallback(async () => {
@@ -887,19 +957,22 @@ export function usePostureMonitor({ isAuthenticated, userId }: HookOptions) {
       badSinceRef.current = null;
       badAlertSentRef.current = false;
       goodStreakStartedAtRef.current = null;
+      goodStreakLastPushRef.current = null;
+      badDurationLastPushRef.current = null;
       setGoodStreakMs(0);
       setBadPostureMs(0);
       setAlertBanner(null);
       headTiltAccumulatorRef.current = { total: 0, count: 0 };
       setSessionSummary(null);
-      setTips(
-        personalBaselineRef.current
+      setFrameUi((prev) => ({
+        ...prev,
+        tips: personalBaselineRef.current
           ? ["Session started. Keep your ears aligned over your shoulders for best score."]
           : [
               "Session started. For best accuracy, run Calibrate Posture first.",
               "You can still continue in demo mode without calibration."
             ]
-      );
+      }));
     } catch (err) {
       setError(err instanceof Error ? err.message : "Unable to start session.");
     }
@@ -968,6 +1041,7 @@ export function usePostureMonitor({ isAuthenticated, userId }: HookOptions) {
 
   const startMonitoring = useCallback(async () => {
     setError(null);
+    setIsBreakMode(false);
     void maybeRequestNotificationPermission();
 
     if (!poseRef.current) {
@@ -1022,7 +1096,19 @@ export function usePostureMonitor({ isAuthenticated, userId }: HookOptions) {
       setPostureTrend([]);
       snapshotLastCaptureRef.current = null;
       setCurrentSnapshot(null);
-      setOverlayMetrics(DEFAULT_ALIGNMENT_METRICS);
+      overlayCanvasSizeRef.current = { width: 0, height: 0 };
+      uiLastFlushRef.current = 0;
+      setFrameUi((prev) => ({
+        ...prev,
+        state: "NO_PERSON",
+        score: 0,
+        metrics: FALLBACK_METRICS,
+        overlayMetrics: DEFAULT_ALIGNMENT_METRICS,
+        trackingConfidence: 0,
+        trackingStable: true,
+        dominantIssue: null,
+        tips: DEFAULT_TIPS
+      }));
       overlayMetricsLastPushRef.current = null;
       if (calibrationStatus !== "CALIBRATED") {
         setCalibrationPhase("IDLE");
@@ -1060,36 +1146,48 @@ export function usePostureMonitor({ isAuthenticated, userId }: HookOptions) {
           smoothScoreWindowRef.current = [];
           displayedScoreRef.current = 0;
           const nextState: PostureState = "NO_PERSON";
-          setState(nextState);
-          setScore(0);
-          setMetrics(FALLBACK_METRICS);
-          setTrackingConfidence(0);
-          setTrackingStable(false);
           trackingStableRef.current = false;
-          setTips(["No person detected. Sit in frame and face the camera."]);
-          setDominantIssue(null);
-          setDebugData((prev) => ({
+          const overlayAlignment = drawOverlay(null, nextState);
+          const shouldPushOverlay =
+            !overlayMetricsLastPushRef.current ||
+            now - overlayMetricsLastPushRef.current >= OVERLAY_METRIC_PUSH_INTERVAL_MS;
+          if (shouldPushOverlay) {
+            overlayMetricsLastPushRef.current = now;
+          }
+          flushFrameUi((prev) => ({
             ...prev,
             state: nextState,
-            smoothedScore: 0,
-            rawScore: 0,
-            trackingStable: false,
+            score: 0,
+            metrics: FALLBACK_METRICS,
+            tips: NO_PERSON_TIPS,
             trackingConfidence: 0,
-            rawMetrics: FALLBACK_METRICS,
-            deviation: FALLBACK_METRICS,
-            rawExtras: {
-              noseShoulderOffset: 0,
-              upperBodySymmetry: 0,
-              visibility: 0
-            },
-            deviationExtras: {
-              noseShoulderOffset: 0,
-              upperBodySymmetry: 0,
-              visibility: 0
-            },
-            dominantIssue: null
-          }));
-          drawOverlay(null, nextState, now);
+            trackingStable: false,
+            dominantIssue: null,
+            overlayMetrics: shouldPushOverlay ? overlayAlignment : prev.overlayMetrics,
+            debugData: debugEnabledRef.current
+              ? {
+                  ...prev.debugData,
+                  state: nextState,
+                  smoothedScore: 0,
+                  rawScore: 0,
+                  trackingStable: false,
+                  trackingConfidence: 0,
+                  rawMetrics: FALLBACK_METRICS,
+                  deviation: FALLBACK_METRICS,
+                  rawExtras: {
+                    noseShoulderOffset: 0,
+                    upperBodySymmetry: 0,
+                    visibility: 0
+                  },
+                  deviationExtras: {
+                    noseShoulderOffset: 0,
+                    upperBodySymmetry: 0,
+                    visibility: 0
+                  },
+                  dominantIssue: null
+                }
+              : prev.debugData
+          }), now);
           updateSessionStats(nextState, 0, now);
           rafRef.current = requestAnimationFrame(tick);
           return;
@@ -1102,9 +1200,6 @@ export function usePostureMonitor({ isAuthenticated, userId }: HookOptions) {
           confidence >= TRACKING_STABLE_THRESHOLD ||
           (trackingStableRef.current && confidence >= TRACKING_UNSTABLE_THRESHOLD);
         trackingStableRef.current = currentlyStable;
-
-        setTrackingConfidence(confidence);
-        setTrackingStable(currentlyStable);
 
         const rawMetrics = computeMetrics(landmarks);
         const rawExtras = computeCalibrationExtras(landmarks);
@@ -1156,7 +1251,19 @@ export function usePostureMonitor({ isAuthenticated, userId }: HookOptions) {
             }
           }
 
-          drawOverlay(landmarks, activeStateRef.current, now);
+          const overlayAlignment = drawOverlay(landmarks, activeStateRef.current);
+          const shouldPushOverlay =
+            !overlayMetricsLastPushRef.current ||
+            now - overlayMetricsLastPushRef.current >= OVERLAY_METRIC_PUSH_INTERVAL_MS;
+          if (shouldPushOverlay) {
+            overlayMetricsLastPushRef.current = now;
+          }
+          flushFrameUi((prev) => ({
+            ...prev,
+            trackingConfidence: confidence,
+            trackingStable: currentlyStable,
+            overlayMetrics: shouldPushOverlay ? overlayAlignment : prev.overlayMetrics
+          }), now);
           rafRef.current = requestAnimationFrame(tick);
           return;
         }
@@ -1230,29 +1337,42 @@ export function usePostureMonitor({ isAuthenticated, userId }: HookOptions) {
         }
 
         const topIssue = scoring.issues[0] ?? null;
-        setDominantIssue(topIssue?.label ?? null);
-
-        setState(stableState);
-        setScore(smoothedScore);
-        setMetrics(deviation);
-        setTips(tipsFromIssues(scoring.issues, stableState, currentlyStable));
-
-        setDebugData({
-          baseline: personalBaselineRef.current?.posture ?? null,
-          baselineExtras: personalBaselineRef.current?.extras ?? null,
-          rawMetrics: smoothedRawMetrics,
-          rawExtras: smoothedRawExtras,
-          deviation,
-          deviationExtras,
-          penalties: scoring.penalties,
-          rawScore,
-          smoothedScore,
+        const overlayAlignment = drawOverlay(landmarks, stableState);
+        const shouldPushOverlay =
+          !overlayMetricsLastPushRef.current ||
+          now - overlayMetricsLastPushRef.current >= OVERLAY_METRIC_PUSH_INTERVAL_MS;
+        if (shouldPushOverlay) {
+          overlayMetricsLastPushRef.current = now;
+        }
+        flushFrameUi((prev) => ({
+          ...prev,
+          state: stableState,
+          score: smoothedScore,
+          metrics: deviation,
+          tips: tipsFromIssues(scoring.issues, stableState, currentlyStable),
           trackingConfidence: confidence,
           trackingStable: currentlyStable,
           dominantIssue: topIssue?.label ?? null,
-          state: stableState,
-          calibrationQuality
-        });
+          overlayMetrics: shouldPushOverlay ? overlayAlignment : prev.overlayMetrics,
+          debugData: debugEnabledRef.current
+            ? {
+                baseline: personalBaselineRef.current?.posture ?? null,
+                baselineExtras: personalBaselineRef.current?.extras ?? null,
+                rawMetrics: smoothedRawMetrics,
+                rawExtras: smoothedRawExtras,
+                deviation,
+                deviationExtras,
+                penalties: scoring.penalties,
+                rawScore,
+                smoothedScore,
+                trackingConfidence: confidence,
+                trackingStable: currentlyStable,
+                dominantIssue: topIssue?.label ?? null,
+                state: stableState,
+                calibrationQuality
+              }
+            : prev.debugData
+        }), now);
 
         const lastSnapshotAt = snapshotLastCaptureRef.current;
         if (!lastSnapshotAt || now - lastSnapshotAt >= SNAPSHOT_INTERVAL_MS) {
@@ -1261,7 +1381,6 @@ export function usePostureMonitor({ isAuthenticated, userId }: HookOptions) {
           snapshotLastCaptureRef.current = now;
         }
 
-        drawOverlay(landmarks, stableState, now);
         updateSessionStats(stableState, smoothedScore, now);
         rafRef.current = requestAnimationFrame(tick);
       };
@@ -1279,11 +1398,17 @@ export function usePostureMonitor({ isAuthenticated, userId }: HookOptions) {
     captureSnapshot,
     calibrationStatus,
     drawOverlay,
+    flushFrameUi,
     finalizeCalibration,
     maybeRequestNotificationPermission,
     stopMonitoring,
     updateSessionStats
   ]);
+
+  const resumeMonitoringFromBreak = useCallback(async () => {
+    setIsBreakMode(false);
+    await startMonitoring();
+  }, [startMonitoring]);
 
   useEffect(() => stopMonitoring, [stopMonitoring]);
 
@@ -1307,32 +1432,43 @@ export function usePostureMonitor({ isAuthenticated, userId }: HookOptions) {
 
   const victorContext: VictorContextPayload = useMemo(
     () => ({
-      state,
-      score,
+      state: frameUi.state,
+      score: frameUi.score,
       calibrationStatus,
       calibrationMessage,
-      trackingStable,
-      trackingConfidence,
-      dominantIssue,
+      trackingStable: frameUi.trackingStable,
+      trackingConfidence: frameUi.trackingConfidence,
+      dominantIssue: frameUi.dominantIssue,
       latestSession: sessionSummary,
-      liveTips: tips,
+      liveTips: frameUi.tips,
       sessionStats: stats,
       sessionHistory: summarizeHistory(sessionHistory)
     }),
     [
       calibrationMessage,
       calibrationStatus,
-      dominantIssue,
-      score,
+      frameUi.dominantIssue,
+      frameUi.score,
+      frameUi.state,
+      frameUi.tips,
+      frameUi.trackingConfidence,
+      frameUi.trackingStable,
       sessionHistory,
       sessionSummary,
-      state,
-      stats,
-      tips,
-      trackingConfidence,
-      trackingStable
+      stats
     ]
   );
+
+  const scoreTrend = useMemo<ScoreTrend>(() => {
+    if (postureTrend.length < 2) return "STABLE";
+    const recent = postureTrend.slice(-5);
+    const first = recent[0]?.score ?? frameUi.score;
+    const last = recent[recent.length - 1]?.score ?? frameUi.score;
+    const delta = last - first;
+    if (delta >= 4) return "IMPROVING";
+    if (delta <= -4) return "DECLINING";
+    return "STABLE";
+  }, [frameUi.score, postureTrend]);
 
   return {
     videoRef,
@@ -1340,10 +1476,10 @@ export function usePostureMonitor({ isAuthenticated, userId }: HookOptions) {
     modelStatus,
     cameraReady,
     error,
-    state,
-    score,
-    tips,
-    metrics,
+    state: frameUi.state,
+    score: frameUi.score,
+    tips: frameUi.tips,
+    metrics: frameUi.metrics,
     stats,
     insights,
     timeline,
@@ -1354,10 +1490,13 @@ export function usePostureMonitor({ isAuthenticated, userId }: HookOptions) {
     calibrationQuality,
     calibratedAt,
     calibrationMessage,
-    trackingConfidence,
-    trackingStable,
-    debugData,
-    dominantIssue,
+    trackingConfidence: frameUi.trackingConfidence,
+    trackingStable: frameUi.trackingStable,
+    debugData: frameUi.debugData,
+    dominantIssue: frameUi.dominantIssue,
+    scoreTrend,
+    debugEnabled,
+    isBreakMode,
     isCalibrating: calibrationStatus === "CALIBRATING",
     isSessionActive,
     sessionElapsedMs,
@@ -1370,14 +1509,17 @@ export function usePostureMonitor({ isAuthenticated, userId }: HookOptions) {
     soundAlertEnabled,
     calibrationSnapshot,
     currentSnapshot,
-    overlayMetrics,
+    overlayMetrics: frameUi.overlayMetrics,
     victorContext,
     startMonitoring,
     stopMonitoring,
+    pauseMonitoringForBreak,
+    resumeMonitoringFromBreak,
     beginCalibration,
     startSession,
     endSession,
     dismissSessionSummary,
-    setSoundAlertEnabled
+    setSoundAlertEnabled,
+    setDebugEnabled
   };
 }
