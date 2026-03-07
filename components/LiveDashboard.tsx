@@ -65,8 +65,8 @@ function scoreGrade(score: number) {
 }
 
 function postureLabel(score: number) {
-  if (score >= 85) return "Great Posture";
-  if (score >= 70) return "Needs Work";
+  if (score >= 80) return "Great Posture";
+  if (score >= 60) return "Needs Work";
   return "Poor Posture";
 }
 
@@ -150,9 +150,9 @@ function LiveDashboardBase({
   }, [breakMode, cameraReady, error, state, trackingStable]);
 
   const scoreRing = useMemo(() => {
-    const radius = 64;
-    const center = 76;
-    const size = 152;
+    const radius = 72;
+    const center = 84;
+    const size = 168;
     const circumference = 2 * Math.PI * radius;
     const dashOffset = circumference - (circumference * score) / 100;
     return { radius, center, size, circumference, dashOffset };
@@ -260,7 +260,7 @@ function LiveDashboardBase({
           <p className="mt-1 text-xs text-emerald-200">Personal baseline saved: {new Date(calibratedAt).toLocaleString()}</p>
         ) : null}
         {calibrationQuality && calibrationStatus === "CALIBRATED" ? (
-          <p className="mt-1 text-xs text-slate-300">
+          <p className="mt-1 text-sm text-slate-200">
             Calibration quality: {Math.round(calibrationQuality.stabilityScore * 100)}% stability from {calibrationQuality.goodFrames}/
             {calibrationQuality.totalFrames} good frames.
           </p>
@@ -286,7 +286,7 @@ function LiveDashboardBase({
         <div className={`panel rounded-3xl border p-6 text-center ${scoreCardTone(score)}`}>
           <p className="text-xs uppercase tracking-[0.24em] text-slate-200">Live Posture Score</p>
           <div className="mt-4 flex flex-col items-center gap-4">
-            <div className="relative h-40 w-40 sm:h-[152px] sm:w-[152px]">
+            <div className="relative h-44 w-44 sm:h-[168px] sm:w-[168px]">
               <svg viewBox={`0 0 ${scoreRing.size} ${scoreRing.size}`} className="h-full w-full -rotate-90">
                 <circle
                   cx={scoreRing.center}

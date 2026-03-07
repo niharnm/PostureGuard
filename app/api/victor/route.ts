@@ -1,4 +1,5 @@
 import type { VictorContextPayload } from "@/lib/types";
+import { getSessionUserId } from "@/lib/api-auth";
 import { NextResponse } from "next/server";
 
 const OPENROUTER_URL = "https://openrouter.ai/api/v1/chat/completions";
@@ -65,6 +66,14 @@ const OUT_OF_SCOPE =
   "I can help with your posture scores, sessions, calibration, and improvement tips.";
 
 export async function POST(request: Request) {
+  const userId = await getSessionUserId();
+  if (!userId) {
+    return NextResponse.json(
+      { error: "Unauthorized. Sign in to use Victor." },
+      { status: 401 }
+    );
+  }
+
   try {
     const payload = await request.json();
     const question = String(payload?.question ?? "").trim().slice(0, 500);

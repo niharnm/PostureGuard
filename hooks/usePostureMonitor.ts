@@ -126,6 +126,12 @@ const DEFAULT_FRAME_UI: FrameUiState = {
   debugData: DEFAULT_DEBUG,
   dominantIssue: null
 };
+const BASELINE_DEADZONE: PostureMetrics = {
+  forwardHeadOffset: 0.014,
+  shoulderImbalance: 0.01,
+  headTilt: 0.01,
+  torsoLean: 0.014
+};
 
 const KEY_VISIBILITY_POINTS = [7, 8, 11, 12, 23, 24];
 const SCORE_WINDOW_SIZE = 32;
@@ -145,7 +151,6 @@ const HOLD_MS: Record<string, number> = {
   "BAD->GOOD": 3200
 };
 
-const CALIBRATION_INSTRUCTION_MS = 1_200;
 const CALIBRATION_SCAN_MS = 10_000;
 const CALIBRATION_MIN_FRAMES = 140;
 const CALIBRATION_MIN_GOOD_FRAME_RATIO = 0.72;
@@ -345,6 +350,15 @@ function summarizeHistory(sessions: PersistedSession[]) {
       durationMs
     };
   });
+}
+
+function applyBaselineDeadzone(metric: PostureMetrics): PostureMetrics {
+  return {
+    forwardHeadOffset: Math.max(0, metric.forwardHeadOffset - BASELINE_DEADZONE.forwardHeadOffset),
+    shoulderImbalance: Math.max(0, metric.shoulderImbalance - BASELINE_DEADZONE.shoulderImbalance),
+    headTilt: Math.max(0, metric.headTilt - BASELINE_DEADZONE.headTilt),
+    torsoLean: Math.max(0, metric.torsoLean - BASELINE_DEADZONE.torsoLean)
+  };
 }
 
 export function usePostureMonitor({ isAuthenticated, userId }: HookOptions) {
@@ -797,15 +811,15 @@ export function usePostureMonitor({ isAuthenticated, userId }: HookOptions) {
       return;
     }
 
-    calibrationPhaseRef.current = "INSTRUCTIONS";
+    calibrationPhaseRef.current = "SCANNING";
     calibrationPhaseStartedAtRef.current = performance.now();
     calibrationSamplesRef.current = [];
     calibrationLastMetricsRef.current = null;
     setCalibrationStatus("CALIBRATING");
-    setCalibrationPhase("INSTRUCTIONS");
+    setCalibrationPhase("SCANNING");
     setCalibrationCountdown(10);
     setCalibrationQuality(null);
-    setCalibrationMessage("Sit in your straight, ideal posture. Hold still for 10 seconds while we learn your baseline.");
+    setCalibrationMessage("Sit in your ideal posture and hold still for 10 seconds. We are learning your baseline from this camera angle.");
     setCalibrationProgress(0);
     setFrameUi((prev) => ({
       ...prev,
@@ -858,11 +872,7 @@ export function usePostureMonitor({ isAuthenticated, userId }: HookOptions) {
       setCalibrationPhase("FAILED");
       calibrationPhaseRef.current = "FAILED";
       setCalibrationCountdown(null);
-      setCalibrationMessage(
-        previousBaseline
-          ? "Calibration failed. Kept your previous baseline. Sit still in a straight posture and try again."
-          : "Calibration failed. Please sit still in a straight posture and try again."
-      );
+      setCalibrationMessage("Calibration failed - hold still in a straight posture and try again.");
       setCalibrationProgress(0);
       setFrameUi((prev) => ({
         ...prev,
@@ -878,11 +888,7 @@ export function usePostureMonitor({ isAuthenticated, userId }: HookOptions) {
       setCalibrationPhase("FAILED");
       calibrationPhaseRef.current = "FAILED";
       setCalibrationCountdown(null);
-      setCalibrationMessage(
-        previousBaseline
-          ? "Calibration failed. Kept your previous baseline. Sit still in a straight posture and try again."
-          : "Calibration failed. Please sit still in a straight posture and try again."
-      );
+      setCalibrationMessage("Calibration failed - hold still in a straight posture and try again.");
       return;
     }
 
@@ -914,15 +920,15 @@ export function usePostureMonitor({ isAuthenticated, userId }: HookOptions) {
         });
 
         if (res.ok) {
-          setCalibrationMessage("Calibration complete. Personal baseline saved from your current camera position.");
+          setCalibrationMessage("Calibration complete - your baseline is now active.");
         } else {
-          setCalibrationMessage("Calibration complete for this session. Baseline captured from current camera position.");
+          setCalibrationMessage("Calibration complete - your baseline is now active for this session.");
         }
       } catch {
-        setCalibrationMessage("Calibration complete for this session. Baseline captured from current camera position.");
+        setCalibrationMessage("Calibration complete - your baseline is now active for this session.");
       }
     } else {
-      setCalibrationMessage("Calibration complete for this demo session. Baseline captured from current camera position.");
+      setCalibrationMessage("Calibration complete - your baseline is now active for this demo session.");
     }
 
     setFrameUi((prev) => ({
@@ -1210,45 +1216,30 @@ export function usePostureMonitor({ isAuthenticated, userId }: HookOptions) {
         smoothedExtrasRef.current = smoothedRawExtras;
 
         if (calibrationStatus === "CALIBRATING") {
-          const phase = calibrationPhaseRef.current;
           const phaseStartedAt = calibrationPhaseStartedAtRef.current ?? now;
           const elapsed = now - phaseStartedAt;
 
-          if (phase === "INSTRUCTIONS") {
-            setCalibrationProgress(0);
-            if (elapsed >= CALIBRATION_INSTRUCTION_MS) {
-              calibrationPhaseRef.current = "SCANNING";
-              calibrationPhaseStartedAtRef.current = now;
-              calibrationSamplesRef.current = [];
-              calibrationLastMetricsRef.current = null;
-              setCalibrationPhase("SCANNING");
-              setCalibrationCountdown(10);
-              setCalibrationProgress(0);
-              setCalibrationMessage("Scanning posture baseline for 10 seconds. Hold still.");
-            }
-          } else if (phase === "SCANNING") {
-            const motion = calibrationLastMetricsRef.current
-              ? metricDistance(smoothedRawMetrics, calibrationLastMetricsRef.current)
-              : 0;
-            calibrationLastMetricsRef.current = smoothedRawMetrics;
-            calibrationSamplesRef.current.push({
-              metrics: smoothedRawMetrics,
-              extras: smoothedRawExtras,
-              confidence,
-              motion,
-              landmarks: landmarks.map((point) => ({ x: point.x, y: point.y }))
-            });
+          const motion = calibrationLastMetricsRef.current
+            ? metricDistance(smoothedRawMetrics, calibrationLastMetricsRef.current)
+            : 0;
+          calibrationLastMetricsRef.current = smoothedRawMetrics;
+          calibrationSamplesRef.current.push({
+            metrics: smoothedRawMetrics,
+            extras: smoothedRawExtras,
+            confidence,
+            motion,
+            landmarks: landmarks.map((point) => ({ x: point.x, y: point.y }))
+          });
 
-            const progress = Math.min(100, Math.round((elapsed / CALIBRATION_SCAN_MS) * 100));
-            const secondsLeft = Math.max(0, Math.ceil((CALIBRATION_SCAN_MS - elapsed) / 1000));
-            setCalibrationCountdown(secondsLeft);
-            setCalibrationProgress(progress);
-            if (elapsed >= CALIBRATION_SCAN_MS) {
-              calibrationLastMetricsRef.current = null;
-              setCalibrationCountdown(0);
-              setCalibrationProgress(100);
-              void finalizeCalibration();
-            }
+          const progress = Math.min(100, Math.round((elapsed / CALIBRATION_SCAN_MS) * 100));
+          const secondsLeft = Math.max(0, Math.ceil((CALIBRATION_SCAN_MS - elapsed) / 1000));
+          setCalibrationCountdown(secondsLeft);
+          setCalibrationProgress(progress);
+          if (elapsed >= CALIBRATION_SCAN_MS) {
+            calibrationLastMetricsRef.current = null;
+            setCalibrationCountdown(0);
+            setCalibrationProgress(100);
+            void finalizeCalibration();
           }
 
           const overlayAlignment = drawOverlay(landmarks, activeStateRef.current);
@@ -1275,7 +1266,8 @@ export function usePostureMonitor({ isAuthenticated, userId }: HookOptions) {
           visibility: confidence
         };
         const hasBaseline = Boolean(personalBaselineRef.current);
-        const deviation = hasBaseline ? metricDelta(smoothedRawMetrics, baseline) : smoothedRawMetrics;
+        const rawDeviation = hasBaseline ? metricDelta(smoothedRawMetrics, baseline) : smoothedRawMetrics;
+        const deviation = hasBaseline ? applyBaselineDeadzone(rawDeviation) : rawDeviation;
         const deviationExtras: CalibrationExtraMetrics = {
           noseShoulderOffset: hasBaseline
             ? Math.abs(smoothedRawExtras.noseShoulderOffset - baselineExtras.noseShoulderOffset)
@@ -1286,9 +1278,9 @@ export function usePostureMonitor({ isAuthenticated, userId }: HookOptions) {
           visibility: Math.max(0, (baselineExtras.visibility || 0) - smoothedRawExtras.visibility)
         };
         const scoring = scoreFromDeviation(deviation);
-        const symmetryPenalty = clamp(deviationExtras.upperBodySymmetry * 34, 0, 22);
-        const noseOffsetPenalty = clamp(deviationExtras.noseShoulderOffset * 26, 0, 18);
-        const visibilityPenalty = clamp(deviationExtras.visibility * 30, 0, 10);
+        const symmetryPenalty = clamp(deviationExtras.upperBodySymmetry * 26, 0, 14);
+        const noseOffsetPenalty = clamp(deviationExtras.noseShoulderOffset * 20, 0, 12);
+        const visibilityPenalty = clamp(deviationExtras.visibility * 24, 0, 8);
         const rawScore = clamp(Math.round(scoring.rawScore - symmetryPenalty - noseOffsetPenalty - visibilityPenalty), 0, 100);
 
         if (sessionActiveRef.current) {

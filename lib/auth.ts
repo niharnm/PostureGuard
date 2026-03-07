@@ -7,13 +7,18 @@ import GoogleProvider from "next-auth/providers/google";
 const googleClientId = process.env.GOOGLE_CLIENT_ID;
 const googleClientSecret = process.env.GOOGLE_CLIENT_SECRET;
 const googleConfigured = Boolean(googleClientId && googleClientSecret);
+const nextAuthSecret = process.env.NEXTAUTH_SECRET;
+
+if (!nextAuthSecret) {
+  throw new Error("Missing NEXTAUTH_SECRET. Set NEXTAUTH_SECRET in your environment before starting PostureGuard.");
+}
 
 if ((googleClientId && !googleClientSecret) || (!googleClientId && googleClientSecret)) {
   throw new Error("Google OAuth is partially configured. Set both GOOGLE_CLIENT_ID and GOOGLE_CLIENT_SECRET.");
 }
 
 export const authOptions: NextAuthOptions = {
-  secret: process.env.NEXTAUTH_SECRET,
+  secret: nextAuthSecret,
   session: {
     strategy: "jwt"
   },

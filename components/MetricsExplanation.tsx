@@ -21,8 +21,8 @@ export function MetricsExplanation() {
         </article>
       </div>
       <p className="mt-5 text-sm text-slate-400">
-        Score starts at 100 and deducts penalties from each metric. Classification: GOOD (75-100), WARN
-        (50-74), BAD (0-49). A temporal smoothing layer with hysteresis delays state flips to prevent
+        Score starts at 100 and deducts penalties from each metric. Classification: GOOD (80-100), WARN
+        (60-79), BAD (0-59). A temporal smoothing layer with hysteresis delays state flips to prevent
         flicker.
       </p>
     </section>

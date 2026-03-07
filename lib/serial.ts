@@ -27,10 +27,15 @@ export async function connectArduino(baudRate = 9600): Promise<ArduinoConnection
 export async function disconnectArduino(connection: ArduinoConnection) {
   try {
     connection.writer.releaseLock();
-  } catch {
-    // Ignore lock-release issues during teardown.
+  } catch (error) {
+    console.debug("Arduino disconnect: writer lock release failed.", error);
   }
-  await connection.port.close();
+
+  try {
+    await connection.port.close();
+  } catch (error) {
+    console.debug("Arduino disconnect: port close failed (possibly already disconnected).", error);
+  }
 }
 
 export function mapPostureToArduinoSignal(state: PostureState): ArduinoSignal | null {
@@ -39,7 +44,13 @@ export function mapPostureToArduinoSignal(state: PostureState): ArduinoSignal | 
 }
 
 export async function sendArduinoCommand(connection: ArduinoConnection, signal: ArduinoSignal) {
-  const payload = encoder.encode(`${signal}\n`);
+  if (!connection.port.writable) {
+    throw new Error("Serial port is not writable.");
+  }
+
+  const command = signal.trim().toUpperCase();
+  console.log("Arduino → sending:", command);
+  const payload = encoder.encode(`${command}\n`);
   await connection.writer.write(payload);
 }
 

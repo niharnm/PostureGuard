@@ -38,6 +38,16 @@ export function useArduinoSerial() {
     setStatus("DISCONNECTED");
   }, []);
 
+  const closeConnectionSafely = useCallback(async () => {
+    const connection = connectionRef.current;
+    if (!connection) return;
+    try {
+      await disconnectArduino(connection);
+    } catch {
+      // Best-effort close during recovery paths.
+    }
+  }, []);
+
   const writeCommand = useCallback(
     async (signal: ArduinoSignal, source: CommandSource, force = false) => {
       if (status !== "CONNECTED" || !connectionRef.current) {
@@ -72,11 +82,12 @@ export function useArduinoSerial() {
         setLastWriteStatus("ERROR");
         setLastWriteMessage(`${source}: ${message}`);
         setLastWriteAt(Date.now());
+        await closeConnectionSafely();
         resetConnectionState();
         return false;
       }
     },
-    [resetConnectionState, status]
+    [closeConnectionSafely, resetConnectionState, status]
   );
 
   const connect = useCallback(async () => {
@@ -111,7 +122,7 @@ export function useArduinoSerial() {
   const disconnect = useCallback(async () => {
     if (!connectionRef.current) return;
     try {
-      await disconnectArduino(connectionRef.current);
+      await closeConnectionSafely();
       setLastWriteStatus("SUCCESS");
       setLastWriteMessage("Disconnected serial port.");
       setLastWriteAt(Date.now());
@@ -126,7 +137,7 @@ export function useArduinoSerial() {
       setLastSent(null);
       setHardwareState(null);
     }
-  }, [resetConnectionState]);
+  }, [closeConnectionSafely, resetConnectionState]);
 
   const sendState = useCallback(
     async (state: PostureState) => {
