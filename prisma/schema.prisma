@@ -1,0 +1,45 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "sqlite"
+  url      = env("DATABASE_URL")
+}
+
+model User {
+  id           String          @id @default(cuid())
+  email        String          @unique
+  name         String?
+  passwordHash String?
+  createdAt    DateTime        @default(now())
+  updatedAt    DateTime        @updatedAt
+  calibration  Calibration?
+  sessions     PostureSession[]
+}
+
+model Calibration {
+  id                 String   @id @default(cuid())
+  userId             String   @unique
+  baselineForward    Float
+  baselineShoulder   Float
+  baselineHeadTilt   Float
+  baselineTorsoAlign Float
+  createdAt          DateTime @default(now())
+  updatedAt          DateTime @updatedAt
+  user               User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+}
+
+model PostureSession {
+  id         String   @id @default(cuid())
+  userId     String
+  startTime  DateTime
+  endTime    DateTime?
+  timeGoodMs Int      @default(0)
+  timeWarnMs Int      @default(0)
+  timeBadMs  Int      @default(0)
+  score      Int      @default(0)
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+  user       User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+}
