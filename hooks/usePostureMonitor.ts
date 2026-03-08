@@ -132,10 +132,10 @@ const DEFAULT_FRAME_UI: FrameUiState = {
   dominantIssue: null
 };
 const BASELINE_DEADZONE: PostureMetrics = {
-  forwardHeadOffset: 0.02,
-  shoulderImbalance: 0.014,
-  headTilt: 0.014,
-  torsoLean: 0.02
+  forwardHeadOffset: 0.016,
+  shoulderImbalance: 0.012,
+  headTilt: 0.012,
+  torsoLean: 0.016
 };
 
 const KEY_VISIBILITY_POINTS = [7, 8, 11, 12, 23, 24];
@@ -1374,15 +1374,15 @@ export function usePostureMonitor({ isAuthenticated, userId }: HookOptions) {
         };
         const scoring = scoreFromDeviation(deviation);
         const symmetryPenalty = hasBaseline
-          ? clamp(deviationExtras.upperBodySymmetry * 14, 0, 8)
+          ? clamp(deviationExtras.upperBodySymmetry * 21, 0, 11)
           : clamp(deviationExtras.upperBodySymmetry * 26, 0, 14);
         const noseOffsetPenalty = hasBaseline
-          ? clamp(deviationExtras.noseShoulderOffset * 10, 0, 6)
+          ? clamp(deviationExtras.noseShoulderOffset * 16, 0, 9)
           : clamp(deviationExtras.noseShoulderOffset * 20, 0, 12);
         const visibilityPenalty = hasBaseline
-          ? clamp(deviationExtras.visibility * 14, 0, 5)
+          ? clamp(deviationExtras.visibility * 20, 0, 7)
           : clamp(deviationExtras.visibility * 24, 0, 8);
-        const baselineBonus = hasBaseline ? clamp(Math.round((1 - clamp(averageDeviation(deviation) / 0.03, 0, 1)) * 8), 0, 8) : 0;
+        const baselineBonus = hasBaseline ? clamp(Math.round((1 - clamp(averageDeviation(deviation) / 0.022, 0, 1)) * 4), 0, 4) : 0;
         const rawScore = clamp(
           Math.round(scoring.rawScore - symmetryPenalty - noseOffsetPenalty - visibilityPenalty + baselineBonus),
           0,
