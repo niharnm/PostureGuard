@@ -3,6 +3,7 @@ import { motion } from "framer-motion";
 import { PostureState } from "@/lib/types";
 
 type Props = {
+  total: string;
   good: string;
   warn: string;
   bad: string;
@@ -17,7 +18,7 @@ function stateColor(state: PostureState) {
   return "bg-violet-400";
 }
 
-function SessionInsightsBase({ good, warn, bad, score, timeline }: Props) {
+function SessionInsightsBase({ total, good, warn, bad, score, timeline }: Props) {
   const displayTimeline: PostureState[] = timeline.length ? timeline : ["NO_PERSON"];
 
   return (
@@ -33,7 +34,11 @@ function SessionInsightsBase({ good, warn, bad, score, timeline }: Props) {
           Active Session Metrics
         </p>
       </div>
-      <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+      <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-5">
+        <div className="rounded-2xl border border-cyan-300/35 bg-cyan-300/10 p-4">
+          <p className="text-xs uppercase tracking-[0.2em] text-cyan-100">Session Time</p>
+          <p className="mt-2 font-[var(--font-jetbrains)] text-2xl text-white">{total}</p>
+        </div>
         <div className="rounded-2xl border border-mint/30 bg-mint/10 p-4">
           <p className="text-xs uppercase tracking-[0.2em] text-mint/80">Good Time</p>
           <p className="mt-2 font-[var(--font-jetbrains)] text-2xl text-white">{good}</p>

@@ -64,9 +64,8 @@ export default function HomePage() {
     if (monitor.isSessionActive) {
       await monitor.endSession();
     }
-    monitor.pauseMonitoringForBreak();
     await arduino.triggerBreak();
-  }, [arduino.triggerBreak, monitor.endSession, monitor.isSessionActive, monitor.pauseMonitoringForBreak]);
+  }, [arduino.triggerBreak, monitor.endSession, monitor.isSessionActive]);
 
   useEffect(() => {
     if (monitor.isBreakMode) return;
@@ -191,6 +190,7 @@ export default function HomePage() {
           <PostureHeatmapTimeline timeline={monitor.timeline} />
 
           <SessionInsights
+            total={formatDuration(monitor.sessionElapsedMs)}
             good={monitor.insights.good}
             warn={monitor.insights.warn}
             bad={monitor.insights.bad}

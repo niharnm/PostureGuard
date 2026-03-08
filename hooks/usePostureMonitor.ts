@@ -1098,6 +1098,7 @@ export function usePostureMonitor({ isAuthenticated, guestMode = false, userId }
       sessionAccumulatedMsRef.current = 0;
       sessionActiveSegmentStartedAtRef.current = sessionStartedAtRef.current;
       sessionActiveRef.current = true;
+      setIsBreakMode(false);
       setIsSessionActive(true);
       setSessionElapsedMs(0);
       statsRef.current = { ...DEFAULT_STATS };
@@ -1188,7 +1189,9 @@ export function usePostureMonitor({ isAuthenticated, guestMode = false, userId }
     }
 
     sessionActiveRef.current = false;
+    stopMonitoring();
     subjectSignatureRef.current = null;
+    setIsBreakMode(false);
     setIsSessionActive(false);
     currentSessionIdRef.current = null;
     sessionStartedAtRef.current = null;
@@ -1214,7 +1217,7 @@ export function usePostureMonitor({ isAuthenticated, guestMode = false, userId }
       worstMoment: worstMomentRef.current,
       feedback
     });
-  }, [getSessionElapsedMs, guestMode, isAuthenticated]);
+  }, [getSessionElapsedMs, guestMode, isAuthenticated, stopMonitoring]);
 
   const dismissSessionSummary = useCallback(() => {
     setSessionSummary(null);
