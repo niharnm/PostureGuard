@@ -1,7 +1,7 @@
 export function MetricsExplanation() {
   return (
     <section className="panel rounded-3xl p-6 sm:p-8">
-      <h2 className="text-xl font-semibold text-white">How PostureGuard Scores Your Posture</h2>
+      <h2 className="text-xl font-semibold text-white">How PostureGaurd Scores Your Posture</h2>
       <div className="mt-4 grid gap-4 text-sm text-slate-300 md:grid-cols-2">
         <article className="rounded-2xl border border-slate-700/45 bg-slate-900/35 p-4">
           <h3 className="font-semibold text-white">Forward Head Offset</h3>

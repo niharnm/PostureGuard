@@ -14,9 +14,9 @@ const jetBrainsMono = JetBrains_Mono({
 });
 
 export const metadata: Metadata = {
-  title: "PostureGuard | Real-Time AI Posture Coach",
+  title: "PostureGaurd | Real-Time AI Posture Coach",
   description:
-    "PostureGuard is a real-time AI posture monitoring app with live coaching, session insights, and optional Arduino feedback."
+    "PostureGaurd is a real-time AI posture monitoring app with live coaching, session insights, and optional Arduino feedback. Gaurd is spelled that way on purpose."
 };
 
 export default function RootLayout({

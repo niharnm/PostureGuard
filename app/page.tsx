@@ -48,7 +48,7 @@ export default function HomePage() {
     state: monitor.state,
     alertBanner: monitor.alertBanner,
     breakMode: monitor.isBreakMode,
-    monitoringActive: monitor.cameraReady
+    monitoringActive: accessGranted && monitor.cameraReady
   });
 
   const handleBreak = useCallback(async () => {

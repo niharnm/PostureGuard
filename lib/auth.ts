@@ -11,7 +11,7 @@ const nextAuthSecret = process.env.NEXTAUTH_SECRET;
 const isPlaceholderSecret = nextAuthSecret === "replace-with-a-long-random-secret";
 
 if (!nextAuthSecret) {
-  throw new Error("Missing NEXTAUTH_SECRET. Set NEXTAUTH_SECRET in your environment before starting PostureGuard.");
+  throw new Error("Missing NEXTAUTH_SECRET. Set NEXTAUTH_SECRET in your environment before starting PostureGaurd.");
 }
 
 if ((googleClientId && !googleClientSecret) || (!googleClientId && googleClientSecret)) {

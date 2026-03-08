@@ -18,7 +18,7 @@ const quickStats = [
   { icon: TrendingUp, label: "Session trend", value: "+18%" }
 ];
 
-export const PostureGuardShowcaseDemo = () => {
+export const PostureGaurdShowcaseDemo = () => {
   return (
     <ContainerScroll
       titleComponent={
@@ -31,7 +31,7 @@ export const PostureGuardShowcaseDemo = () => {
             </span>
           </h2>
           <p className="mx-auto max-w-3xl text-sm text-slate-300 sm:text-base">
-            PostureGuard combines live detection, scoring, calibration, analytics, Victor insights, and optional
+            PostureGaurd combines live detection, scoring, calibration, analytics, Victor insights, and optional
             Arduino alerts in one polished coaching interface.
           </p>
           <p className="mx-auto max-w-3xl text-sm text-slate-300">
@@ -44,7 +44,7 @@ export const PostureGuardShowcaseDemo = () => {
       <div className="relative h-full w-full overflow-hidden bg-slate-950">
         <img
           src="https://images.unsplash.com/photo-1484417894907-623942c8ee29?auto=format&fit=crop&w=2000&q=80"
-          alt="Workspace desk with laptop representing PostureGuard live tracking"
+          alt="Workspace desk with laptop representing PostureGaurd live tracking"
           className="absolute inset-0 h-full w-full object-cover opacity-35"
         />
         <div className="absolute inset-0 bg-gradient-to-tr from-[#040912] via-[#08172a]/90 to-[#0a2338]/80" />
@@ -138,4 +138,4 @@ export const PostureGuardShowcaseDemo = () => {
   );
 };
 
-export default PostureGuardShowcaseDemo;
+export default PostureGaurdShowcaseDemo;

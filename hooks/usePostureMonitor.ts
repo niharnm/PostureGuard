@@ -446,6 +446,8 @@ export function usePostureMonitor({ isAuthenticated, guestMode = false, userId }
   const subjectSignatureRef = useRef<SubjectSignature | null>(null);
   const currentSessionIdRef = useRef<string | null>(null);
   const sessionStartedAtRef = useRef<number | null>(null);
+  const sessionAccumulatedMsRef = useRef(0);
+  const sessionActiveSegmentStartedAtRef = useRef<number | null>(null);
   const monitoringStartedAtRef = useRef<number | null>(null);
   const sessionActiveRef = useRef(false);
   const headTiltAccumulatorRef = useRef({ total: 0, count: 0 });
@@ -606,7 +608,7 @@ export function usePostureMonitor({ isAuthenticated, guestMode = false, userId }
   const triggerNotification = useCallback((message: string) => {
     if (typeof window === "undefined" || !("Notification" in window)) return;
     if (Notification.permission === "granted") {
-      new Notification("PostureGuard Alert", { body: message });
+      new Notification("PostureGaurd Alert", { body: message });
     }
   }, []);
 
@@ -757,6 +759,12 @@ export function usePostureMonitor({ isAuthenticated, guestMode = false, userId }
     setFrameUi(updater);
   }, []);
 
+  const getSessionElapsedMs = useCallback((now: number = Date.now()) => {
+    if (!sessionActiveRef.current) return sessionAccumulatedMsRef.current;
+    if (!sessionActiveSegmentStartedAtRef.current) return sessionAccumulatedMsRef.current;
+    return sessionAccumulatedMsRef.current + Math.max(0, now - sessionActiveSegmentStartedAtRef.current);
+  }, []);
+
   const updateSessionStats = useCallback((nextState: PostureState, nextScore: number, now: number) => {
     const last = lastFrameRef.current;
     lastFrameRef.current = now;
@@ -786,7 +794,7 @@ export function usePostureMonitor({ isAuthenticated, guestMode = false, userId }
       scoreSamplesRef.current.push(nextScore);
 
       if (sessionStartedAtRef.current) {
-        const atMs = Math.max(0, Date.now() - sessionStartedAtRef.current);
+        const atMs = getSessionElapsedMs(now);
         if (!worstMomentRef.current || nextScore < worstMomentRef.current.score) {
           worstMomentRef.current = {
             score: nextScore,
@@ -806,7 +814,7 @@ export function usePostureMonitor({ isAuthenticated, guestMode = false, userId }
     const trendLastPush = trendLastPushRef.current;
     if (!trendLastPush || now - trendLastPush >= TREND_PUSH_INTERVAL_MS) {
       const elapsedSecBase = sessionActiveRef.current && sessionStartedAtRef.current
-        ? Math.max(0, (Date.now() - sessionStartedAtRef.current) / 1000)
+        ? getSessionElapsedMs(now) / 1000
         : Math.max(0, (Date.now() - (monitoringStartedAtRef.current ?? Date.now())) / 1000);
       setPostureTrend((prev) => [
         ...prev.slice(-89),
@@ -861,7 +869,7 @@ export function usePostureMonitor({ isAuthenticated, guestMode = false, userId }
     activeStateRef.current = nextState;
     statsRef.current = next;
     if (sessionActiveRef.current) setStats(next);
-  }, [playAlertTone, triggerNotification]);
+  }, [getSessionElapsedMs, playAlertTone, triggerNotification]);
 
   const stopMonitoring = useCallback(() => {
     if (rafRef.current) cancelAnimationFrame(rafRef.current);
@@ -889,6 +897,11 @@ export function usePostureMonitor({ isAuthenticated, guestMode = false, userId }
   }, []);
 
   const pauseMonitoringForBreak = useCallback(() => {
+    if (sessionActiveRef.current && sessionActiveSegmentStartedAtRef.current) {
+      sessionAccumulatedMsRef.current = getSessionElapsedMs();
+      sessionActiveSegmentStartedAtRef.current = null;
+      setSessionElapsedMs(sessionAccumulatedMsRef.current);
+    }
     stopMonitoring();
     subjectSignatureRef.current = null;
     setIsBreakMode(true);
@@ -899,7 +912,7 @@ export function usePostureMonitor({ isAuthenticated, guestMode = false, userId }
         "Stand up, stretch, and click Resume Tracking when ready."
       ]
     }));
-  }, [stopMonitoring]);
+  }, [getSessionElapsedMs, stopMonitoring]);
 
   const beginCalibration = useCallback(() => {
     if (!cameraReady) {
@@ -1082,6 +1095,8 @@ export function usePostureMonitor({ isAuthenticated, guestMode = false, userId }
       }
 
       sessionStartedAtRef.current = Date.now();
+      sessionAccumulatedMsRef.current = 0;
+      sessionActiveSegmentStartedAtRef.current = sessionStartedAtRef.current;
       sessionActiveRef.current = true;
       setIsSessionActive(true);
       setSessionElapsedMs(0);
@@ -1122,7 +1137,9 @@ export function usePostureMonitor({ isAuthenticated, guestMode = false, userId }
     if (!sessionId || !startedAt) return;
 
     const endedAt = Date.now();
-    const durationMs = Math.max(0, endedAt - startedAt);
+    const durationMs = getSessionElapsedMs(endedAt);
+    sessionAccumulatedMsRef.current = durationMs;
+    sessionActiveSegmentStartedAtRef.current = null;
     const finalStats = statsRef.current;
 
     const headTiltAvg =
@@ -1175,7 +1192,15 @@ export function usePostureMonitor({ isAuthenticated, guestMode = false, userId }
     setIsSessionActive(false);
     currentSessionIdRef.current = null;
     sessionStartedAtRef.current = null;
+    sessionAccumulatedMsRef.current = 0;
     setSessionElapsedMs(0);
+    setStats({ ...DEFAULT_STATS });
+    statsRef.current = { ...DEFAULT_STATS };
+    setTimeline([]);
+    setPostureTrend([]);
+    setGoodStreakMs(0);
+    setBadPostureMs(0);
+    setAlertBanner(null);
 
     setSessionSummary({
       durationMs,
@@ -1189,7 +1214,7 @@ export function usePostureMonitor({ isAuthenticated, guestMode = false, userId }
       worstMoment: worstMomentRef.current,
       feedback
     });
-  }, [guestMode, isAuthenticated]);
+  }, [getSessionElapsedMs, guestMode, isAuthenticated]);
 
   const dismissSessionSummary = useCallback(() => {
     setSessionSummary(null);
@@ -1564,14 +1589,20 @@ export function usePostureMonitor({ isAuthenticated, guestMode = false, userId }
 
   const resumeMonitoringFromBreak = useCallback(async () => {
     setIsBreakMode(false);
+    if (sessionActiveRef.current && !sessionActiveSegmentStartedAtRef.current) {
+      sessionActiveSegmentStartedAtRef.current = Date.now();
+      setSessionElapsedMs(getSessionElapsedMs());
+    }
     await startMonitoring();
-  }, [startMonitoring]);
+  }, [getSessionElapsedMs, startMonitoring]);
 
   const resetExperience = useCallback(() => {
     stopMonitoring();
     sessionActiveRef.current = false;
     currentSessionIdRef.current = null;
     sessionStartedAtRef.current = null;
+    sessionAccumulatedMsRef.current = 0;
+    sessionActiveSegmentStartedAtRef.current = null;
     subjectSignatureRef.current = null;
     setIsBreakMode(false);
     setIsSessionActive(false);
@@ -1579,6 +1610,12 @@ export function usePostureMonitor({ isAuthenticated, guestMode = false, userId }
     setSessionSummary(null);
     setError(null);
     setAlertBanner(null);
+    setStats({ ...DEFAULT_STATS });
+    statsRef.current = { ...DEFAULT_STATS };
+    setTimeline([]);
+    setPostureTrend([]);
+    setGoodStreakMs(0);
+    setBadPostureMs(0);
   }, [stopMonitoring]);
 
   useEffect(() => stopMonitoring, [stopMonitoring]);
@@ -1586,11 +1623,10 @@ export function usePostureMonitor({ isAuthenticated, guestMode = false, userId }
   useEffect(() => {
     if (!isSessionActive) return;
     const timer = setInterval(() => {
-      if (!sessionStartedAtRef.current) return;
-      setSessionElapsedMs(Date.now() - sessionStartedAtRef.current);
+      setSessionElapsedMs(getSessionElapsedMs());
     }, 1000);
     return () => clearInterval(timer);
-  }, [isSessionActive]);
+  }, [getSessionElapsedMs, isSessionActive]);
 
   const insights = useMemo(
     () => ({

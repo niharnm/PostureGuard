@@ -17,7 +17,7 @@ export function SessionSummaryCard({ summary }: Props) {
 
   const copyText = useMemo(
     () => [
-      "PostureGuard Session Summary",
+      "PostureGaurd Session Summary",
       `Duration: ${formatDuration(summary.durationMs)}`,
       `Average posture score: ${summary.averageScore}%`,
       `Consistency score: ${summary.score}%`,

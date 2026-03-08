@@ -95,6 +95,7 @@ export function useVoiceCoach({ state, alertBanner, breakMode, monitoringActive 
       setAvailable(true);
       return client;
     } catch {
+      initAttemptedRef.current = false;
       setAvailable(false);
       return null;
     }
@@ -107,10 +108,11 @@ export function useVoiceCoach({ state, alertBanner, breakMode, monitoringActive 
 
     try {
       await client.start(vapiAssistantId);
+      setAvailable(true);
       vapiStartedRef.current = true;
       return client;
     } catch {
-      setAvailable(false);
+      // Allow later retries without hiding the voice controls.
       return null;
     }
   }, [ensureVapi, vapiAssistantId]);

@@ -10,7 +10,12 @@ export function HeroSection({ onTryDemo }: LandingActions) {
       <div className="landing-blob landing-blob-b" />
       <div className="relative z-10">
         <div className="mb-14 flex flex-wrap items-center justify-between gap-3">
-          <p className="text-sm font-medium tracking-[0.2em] text-cyan-100/80">POSTUREGUARD</p>
+          <div className="flex flex-wrap items-center gap-3">
+            <p className="text-sm font-medium tracking-[0.2em] text-cyan-100/80">POSTUREGAURD</p>
+            <span className="rounded-full border border-cyan-100/15 bg-white/5 px-3 py-1 text-[10px] font-[var(--font-jetbrains)] uppercase tracking-[0.18em] text-cyan-200/75">
+              Gaurd is intentional
+            </span>
+          </div>
           <a
             href="#demo"
             className="rounded-full border border-cyan-100/30 px-4 py-2 text-xs font-semibold uppercase tracking-[0.12em] text-slate-100 transition hover:bg-cyan-200/10"
@@ -26,7 +31,7 @@ export function HeroSection({ onTryDemo }: LandingActions) {
           className="max-w-4xl space-y-5"
         >
           <h1 className="text-4xl font-semibold leading-tight text-white sm:text-6xl">
-            PostureGuard
+            PostureGaurd
             <span className="block bg-gradient-to-r from-cyan-100 via-cyan-300 to-emerald-200 bg-clip-text text-transparent">
               AI-powered posture coaching in real time
             </span>
@@ -34,6 +39,10 @@ export function HeroSection({ onTryDemo }: LandingActions) {
           <p className="max-w-2xl text-base text-slate-200 sm:text-lg">
             Real-time webcam posture detection, instant coaching cues, and personalized analytics that help users sit
             better while studying and working.
+          </p>
+          <p className="max-w-xl text-sm text-cyan-100/75">
+            The name is intentionally styled as <span className="font-semibold text-white">PostureGaurd</span>. The
+            swapped letters are part of the brand, not a typo.
           </p>
         </motion.div>
 

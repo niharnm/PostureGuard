@@ -18,12 +18,16 @@ export function Hero({ onStart }: Props) {
           Real-Time AI Ergonomics Coach
         </p>
         <h1 className="text-4xl font-semibold leading-tight text-white sm:text-5xl">
-          PostureGuard monitors your posture live and coaches you before pain begins.
+          PostureGaurd monitors your posture live and coaches you before pain begins.
         </h1>
         <p className="max-w-2xl text-base text-slate-300 sm:text-lg">
           Webcam pose detection, posture scoring, instant correction tips, session analytics, and optional
           Arduino haptic-light alerts for hackathon demos.
         </p>
+        <div className="inline-flex max-w-fit items-center gap-2 rounded-full border border-cyan-200/20 bg-white/5 px-3 py-1.5 text-xs text-slate-300">
+          <span className="font-[var(--font-jetbrains)] uppercase tracking-[0.18em] text-cyan-200/80">Intentional</span>
+          <span>`Gaurd` stays misspelled on purpose.</span>
+        </div>
         <div className="flex flex-wrap gap-3">
           <button
             onClick={onStart}

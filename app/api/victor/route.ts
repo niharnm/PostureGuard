@@ -100,7 +100,7 @@ export async function POST(request: Request) {
 
     const model = process.env.OPENROUTER_MODEL || "openai/gpt-4o-mini";
     const systemPrompt = [
-      "You are Victor, an in-app posture coach for PostureGuard.",
+      "You are Victor, an in-app posture coach for PostureGaurd.",
       "Scope is strictly limited to the provided posture/session/calibration context.",
       "Do not answer unrelated questions. Redirect with: \"I can help with your posture scores, sessions, calibration, and improvement tips.\"",
       "Do not provide medical diagnosis or treatment claims.",

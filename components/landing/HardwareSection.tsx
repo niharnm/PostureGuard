@@ -11,7 +11,7 @@ export function HardwareSection() {
       <p className="text-xs font-semibold uppercase tracking-[0.18em] text-cyan-200/75">Hardware Integration</p>
       <h2 className="mt-3 text-2xl font-semibold text-white">Optional Arduino physical feedback loop.</h2>
       <p className="mt-3 max-w-3xl text-sm text-slate-300 sm:text-base">
-        PostureGuard can connect to an Arduino device for immediate physical posture feedback and timed break cues.
+        PostureGaurd can connect to an Arduino device for immediate physical posture feedback and timed break cues.
       </p>
       <p className="mt-3 max-w-3xl text-sm text-slate-300">
         This makes it easier to stay aware of posture during long reading, coding, and study sessions before discomfort builds up.

@@ -12,7 +12,7 @@ export function DemoSection({ onTryDemo }: LandingActions) {
           temporary session history on this device.
         </p>
         <p className="mt-3 max-w-3xl text-sm text-slate-300">
-          Calibration helps PostureGuard learn your normal sitting position, making subtle corrections more useful during
+          Calibration helps PostureGaurd learn your normal sitting position, making subtle corrections more useful during
           long classes, homework blocks, or exam prep.
         </p>
         <button

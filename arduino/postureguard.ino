@@ -42,7 +42,7 @@ void setup() {
   Serial.begin(9600);
 
   lcd.begin(16,2);
-  lcd.print("PostureGuard");
+  lcd.print("PostureGaurd");
   lcd.setCursor(0,1);
   lcd.print("Initializing");
 
