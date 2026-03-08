@@ -21,6 +21,7 @@ import { CalibrationComparisonCard } from "@/components/CalibrationComparisonCar
 import { PoseMetricsCard } from "@/components/PoseMetricsCard";
 import { usePostureMonitor } from "@/hooks/usePostureMonitor";
 import { useArduinoSerial } from "@/hooks/useArduinoSerial";
+import { useVoiceCoach } from "@/hooks/useVoiceCoach";
 import { formatDuration } from "@/lib/posture";
 
 export default function HomePage() {
@@ -33,6 +34,12 @@ export default function HomePage() {
     userId: session?.user?.id
   });
   const arduino = useArduinoSerial();
+  const voiceCoach = useVoiceCoach({
+    state: monitor.state,
+    alertBanner: monitor.alertBanner,
+    breakMode: monitor.isBreakMode,
+    monitoringActive: monitor.cameraReady
+  });
 
   const handleBreak = useCallback(async () => {
     monitor.pauseMonitoringForBreak();
@@ -183,6 +190,10 @@ export default function HomePage() {
               soundAlertEnabled={monitor.soundAlertEnabled}
               onSoundToggle={monitor.setSoundAlertEnabled}
               currentSnapshot={monitor.currentSnapshot}
+              voiceCoachEnabled={voiceCoach.enabled}
+              onVoiceCoachToggle={voiceCoach.setEnabled}
+              voiceCoachAvailable={voiceCoach.available}
+              voiceCoachConfigured={voiceCoach.configured}
             />
           </div>
 

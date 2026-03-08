@@ -9,6 +9,10 @@ type Props = {
   goodStreakMs: number;
   soundAlertEnabled: boolean;
   onSoundToggle: (enabled: boolean) => void;
+  voiceCoachEnabled: boolean;
+  onVoiceCoachToggle: (enabled: boolean) => void;
+  voiceCoachAvailable: boolean;
+  voiceCoachConfigured: boolean;
   currentSnapshot: PostureSnapshot | null;
 };
 
@@ -18,22 +22,45 @@ export function PoseMetricsCard({
   goodStreakMs,
   soundAlertEnabled,
   onSoundToggle,
+  voiceCoachEnabled,
+  onVoiceCoachToggle,
+  voiceCoachAvailable,
+  voiceCoachConfigured,
   currentSnapshot
 }: Props) {
   return (
     <section className="panel rounded-3xl p-5 sm:p-6">
       <div className="mb-4 flex items-center justify-between gap-3">
         <h2 className="text-lg font-semibold text-white">Pose Metrics & Alerts</h2>
-        <label className="flex items-center gap-2 text-xs text-slate-300">
-          <input
-            type="checkbox"
-            checked={soundAlertEnabled}
-            onChange={(event) => onSoundToggle(event.target.checked)}
-            className="h-4 w-4 rounded border-slate-500 bg-slate-800"
-          />
-          Sound alerts
-        </label>
+        <div className="flex flex-wrap items-center justify-end gap-3">
+          <label className="flex items-center gap-2 text-xs text-slate-300">
+            <input
+              type="checkbox"
+              checked={soundAlertEnabled}
+              onChange={(event) => onSoundToggle(event.target.checked)}
+              className="h-4 w-4 rounded border-slate-500 bg-slate-800"
+            />
+            Sound alerts
+          </label>
+          <label className="flex items-center gap-2 text-xs text-slate-300">
+            <input
+              type="checkbox"
+              checked={voiceCoachEnabled}
+              onChange={(event) => onVoiceCoachToggle(event.target.checked)}
+              className="h-4 w-4 rounded border-slate-500 bg-slate-800"
+            />
+            Voice Coach
+          </label>
+        </div>
       </div>
+      <p className="mb-4 text-xs text-slate-400">
+        Spoken posture reminders during monitoring.
+        {!voiceCoachConfigured
+          ? " Configure NEXT_PUBLIC_VAPI_PUBLIC_KEY and NEXT_PUBLIC_VAPI_ASSISTANT_ID to enable Vapi voice."
+          : !voiceCoachAvailable
+            ? " Voice is temporarily unavailable."
+            : ""}
+      </p>
 
       {alertBanner ? (
         <div className="mb-4 rounded-xl border border-danger/35 bg-danger/15 px-3 py-2 text-sm text-red-100">

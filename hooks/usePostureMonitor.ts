@@ -132,10 +132,10 @@ const DEFAULT_FRAME_UI: FrameUiState = {
   dominantIssue: null
 };
 const BASELINE_DEADZONE: PostureMetrics = {
-  forwardHeadOffset: 0.014,
-  shoulderImbalance: 0.01,
-  headTilt: 0.01,
-  torsoLean: 0.014
+  forwardHeadOffset: 0.02,
+  shoulderImbalance: 0.014,
+  headTilt: 0.014,
+  torsoLean: 0.02
 };
 
 const KEY_VISIBILITY_POINTS = [7, 8, 11, 12, 23, 24];
@@ -157,11 +157,12 @@ const HOLD_MS: Record<string, number> = {
 };
 
 const CALIBRATION_SCAN_MS = 10_000;
-const CALIBRATION_MIN_FRAMES = 140;
-const CALIBRATION_MIN_GOOD_FRAME_RATIO = 0.72;
-const CALIBRATION_MIN_CONFIDENCE = 0.68;
-const CALIBRATION_MAX_AVG_MOTION = 0.02;
-const CALIBRATION_MAX_STABILITY_SPREAD = 0.04;
+const CALIBRATION_MIN_FRAMES = 90;
+const CALIBRATION_MIN_VALID_FRAME_RATIO = 0.58;
+const CALIBRATION_MIN_STABLE_FRAME_RATIO = 0.6;
+const CALIBRATION_MIN_CONFIDENCE = 0.58;
+const CALIBRATION_MAX_AVG_MOTION = 0.028;
+const CALIBRATION_MAX_STABILITY_SPREAD = 0.055;
 const TRACKING_STABLE_THRESHOLD = 0.58;
 const TRACKING_UNSTABLE_THRESHOLD = 0.5;
 const BAD_ALERT_DELAY_MS = 10_000;
@@ -401,6 +402,15 @@ function applyBaselineDeadzone(metric: PostureMetrics): PostureMetrics {
     headTilt: Math.max(0, metric.headTilt - BASELINE_DEADZONE.headTilt),
     torsoLean: Math.max(0, metric.torsoLean - BASELINE_DEADZONE.torsoLean)
   };
+}
+
+function averageDeviation(deviation: PostureMetrics) {
+  return (
+    deviation.forwardHeadOffset +
+    deviation.shoulderImbalance +
+    deviation.headTilt +
+    deviation.torsoLean
+  ) / 4;
 }
 
 export function usePostureMonitor({ isAuthenticated, userId }: HookOptions) {
@@ -908,7 +918,8 @@ export function usePostureMonitor({ isAuthenticated, userId }: HookOptions) {
         : Number.POSITIVE_INFINITY;
 
     const spread = metricSpread(stableMetrics);
-    const goodFrameRatio = samples.length ? stableSamples.length / samples.length : 0;
+    const validFrameRatio = samples.length ? validSamples.length / samples.length : 0;
+    const stableFrameRatio = validSamples.length ? stableSamples.length / validSamples.length : 0;
     const stabilityScore = clamp(1 - spread / Math.max(CALIBRATION_MAX_STABILITY_SPREAD, 0.0001), 0, 1);
     const quality = {
       totalFrames: samples.length,
@@ -921,16 +932,37 @@ export function usePostureMonitor({ isAuthenticated, userId }: HookOptions) {
 
     if (
       stableSamples.length < CALIBRATION_MIN_FRAMES ||
-      goodFrameRatio < CALIBRATION_MIN_GOOD_FRAME_RATIO ||
+      validFrameRatio < CALIBRATION_MIN_VALID_FRAME_RATIO ||
+      stableFrameRatio < CALIBRATION_MIN_STABLE_FRAME_RATIO ||
       avgConfidence < CALIBRATION_MIN_CONFIDENCE ||
       avgMotion > CALIBRATION_MAX_AVG_MOTION ||
       spread > CALIBRATION_MAX_STABILITY_SPREAD
     ) {
+      const reasons: string[] = [];
+      if (stableSamples.length < CALIBRATION_MIN_FRAMES) {
+        reasons.push("not enough stable frames");
+      }
+      if (validFrameRatio < CALIBRATION_MIN_VALID_FRAME_RATIO) {
+        reasons.push("tracking unstable");
+      }
+      if (stableFrameRatio < CALIBRATION_MIN_STABLE_FRAME_RATIO) {
+        reasons.push("low confidence landmarks");
+      }
+      if (avgMotion > CALIBRATION_MAX_AVG_MOTION) {
+        reasons.push("too much movement");
+      }
+      if (spread > CALIBRATION_MAX_STABILITY_SPREAD) {
+        reasons.push("posture inconsistent during scan");
+      }
       setCalibrationStatus(previousBaseline ? "CALIBRATED" : "NOT_CALIBRATED");
       setCalibrationPhase("FAILED");
       calibrationPhaseRef.current = "FAILED";
       setCalibrationCountdown(null);
-      setCalibrationMessage("Calibration failed - hold still in a straight posture and try again.");
+      setCalibrationMessage(
+        reasons.length
+          ? `Calibration failed - ${reasons.join(", ")}.`
+          : "Calibration failed - hold still in a straight posture and try again."
+      );
       setCalibrationProgress(0);
       setFrameUi((prev) => ({
         ...prev,
@@ -991,7 +1023,7 @@ export function usePostureMonitor({ isAuthenticated, userId }: HookOptions) {
 
     setFrameUi((prev) => ({
       ...prev,
-      tips: ["Calibration complete. Posture scoring now tracks deviation from your baseline."]
+      tips: ["Baseline active. Current posture is now compared against your calibrated posture."]
     }));
   }, [captureSnapshot, isAuthenticated]);
 
@@ -1341,10 +1373,21 @@ export function usePostureMonitor({ isAuthenticated, userId }: HookOptions) {
           visibility: Math.max(0, (baselineExtras.visibility || 0) - smoothedRawExtras.visibility)
         };
         const scoring = scoreFromDeviation(deviation);
-        const symmetryPenalty = clamp(deviationExtras.upperBodySymmetry * 26, 0, 14);
-        const noseOffsetPenalty = clamp(deviationExtras.noseShoulderOffset * 20, 0, 12);
-        const visibilityPenalty = clamp(deviationExtras.visibility * 24, 0, 8);
-        const rawScore = clamp(Math.round(scoring.rawScore - symmetryPenalty - noseOffsetPenalty - visibilityPenalty), 0, 100);
+        const symmetryPenalty = hasBaseline
+          ? clamp(deviationExtras.upperBodySymmetry * 14, 0, 8)
+          : clamp(deviationExtras.upperBodySymmetry * 26, 0, 14);
+        const noseOffsetPenalty = hasBaseline
+          ? clamp(deviationExtras.noseShoulderOffset * 10, 0, 6)
+          : clamp(deviationExtras.noseShoulderOffset * 20, 0, 12);
+        const visibilityPenalty = hasBaseline
+          ? clamp(deviationExtras.visibility * 14, 0, 5)
+          : clamp(deviationExtras.visibility * 24, 0, 8);
+        const baselineBonus = hasBaseline ? clamp(Math.round((1 - clamp(averageDeviation(deviation) / 0.03, 0, 1)) * 8), 0, 8) : 0;
+        const rawScore = clamp(
+          Math.round(scoring.rawScore - symmetryPenalty - noseOffsetPenalty - visibilityPenalty + baselineBonus),
+          0,
+          100
+        );
 
         if (sessionActiveRef.current) {
           headTiltAccumulatorRef.current.total += deviation.headTilt;
