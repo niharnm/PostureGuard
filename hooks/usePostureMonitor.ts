@@ -62,6 +62,11 @@ type CalibrationSample = {
   motion: number;
   landmarks: { x: number; y: number }[];
 };
+type SubjectSignature = {
+  nose: { x: number; y: number };
+  shoulderMid: { x: number; y: number };
+  shoulderWidth: number;
+};
 
 const FALLBACK_METRICS: PostureMetrics = {
   forwardHeadOffset: 0,
@@ -169,6 +174,9 @@ const METRIC_SMOOTH_ALPHA_UNSTABLE = 0.08;
 const SCORE_STEP_STABLE = 1.2;
 const SCORE_STEP_UNSTABLE = 0.45;
 const UNSTABLE_SCORE_MIX = 0.08;
+const SUBJECT_MAX_CENTER_SHIFT = 0.16;
+const SUBJECT_MAX_NOSE_SHIFT = 0.2;
+const SUBJECT_MAX_SHOULDER_WIDTH_DELTA = 0.45;
 const SMOOTH_WEIGHTS = [
   0.008, 0.009, 0.01, 0.011, 0.012, 0.013, 0.014, 0.015, 0.016, 0.017, 0.018, 0.019, 0.02, 0.022, 0.024, 0.026,
   0.028, 0.03, 0.032, 0.034, 0.037, 0.04, 0.043, 0.047, 0.051, 0.055, 0.06, 0.065, 0.07, 0.075, 0.082, 0.09
@@ -307,6 +315,40 @@ function computeAlignmentMetrics(landmarks: { x: number; y: number }[], videoWid
   };
 }
 
+function buildSubjectSignature(landmarks: { x: number; y: number }[]): SubjectSignature | null {
+  const nose = landmarks[0];
+  const leftShoulder = landmarks[11];
+  const rightShoulder = landmarks[12];
+  if (!nose || !leftShoulder || !rightShoulder) return null;
+  const shoulderMid = {
+    x: (leftShoulder.x + rightShoulder.x) / 2,
+    y: (leftShoulder.y + rightShoulder.y) / 2
+  };
+  const shoulderWidth = Math.hypot(leftShoulder.x - rightShoulder.x, leftShoulder.y - rightShoulder.y);
+  if (!Number.isFinite(shoulderWidth) || shoulderWidth <= 0) return null;
+  return { nose: { x: nose.x, y: nose.y }, shoulderMid, shoulderWidth };
+}
+
+function matchesSubjectSignature(
+  landmarks: { x: number; y: number }[],
+  signature: SubjectSignature
+) {
+  const current = buildSubjectSignature(landmarks);
+  if (!current) return false;
+  const centerShift = Math.hypot(
+    current.shoulderMid.x - signature.shoulderMid.x,
+    current.shoulderMid.y - signature.shoulderMid.y
+  );
+  const noseShift = Math.hypot(current.nose.x - signature.nose.x, current.nose.y - signature.nose.y);
+  const widthRatio = current.shoulderWidth / Math.max(signature.shoulderWidth, 0.0001);
+  const shoulderWidthDelta = Math.abs(widthRatio - 1);
+  return (
+    centerShift <= SUBJECT_MAX_CENTER_SHIFT &&
+    noseShift <= SUBJECT_MAX_NOSE_SHIFT &&
+    shoulderWidthDelta <= SUBJECT_MAX_SHOULDER_WIDTH_DELTA
+  );
+}
+
 function nextStateCandidate(score: number, activeState: PostureState) {
   if (activeState === "GOOD") {
     if (score <= STATE_THRESHOLD.warnToBad && score <= STATE_THRESHOLD.badHardFloor) return "BAD" as const;
@@ -381,8 +423,10 @@ export function usePostureMonitor({ isAuthenticated, userId }: HookOptions) {
   const personalBaselineRef = useRef<PersonalBaseline | null>(null);
   const calibrationPhaseRef = useRef<CalibrationPhase>("IDLE");
   const calibrationPhaseStartedAtRef = useRef<number | null>(null);
+  const calibrationStatusRef = useRef<CalibrationState>("NOT_CALIBRATED");
   const calibrationSamplesRef = useRef<CalibrationSample[]>([]);
   const calibrationLastMetricsRef = useRef<PostureMetrics | null>(null);
+  const subjectSignatureRef = useRef<SubjectSignature | null>(null);
   const currentSessionIdRef = useRef<string | null>(null);
   const sessionStartedAtRef = useRef<number | null>(null);
   const monitoringStartedAtRef = useRef<number | null>(null);
@@ -497,6 +541,10 @@ export function usePostureMonitor({ isAuthenticated, userId }: HookOptions) {
   useEffect(() => {
     debugEnabledRef.current = debugEnabled;
   }, [debugEnabled]);
+
+  useEffect(() => {
+    calibrationStatusRef.current = calibrationStatus;
+  }, [calibrationStatus]);
 
   const maybeRequestNotificationPermission = useCallback(async () => {
     if (typeof window === "undefined" || !("Notification" in window)) return;
@@ -655,7 +703,8 @@ export function usePostureMonitor({ isAuthenticated, userId }: HookOptions) {
   }, []);
 
   const flushFrameUi = useCallback((updater: FrameUiUpdater, now: number, force = false) => {
-    if (!force && uiLastFlushRef.current !== 0 && now - uiLastFlushRef.current < UI_FLUSH_INTERVAL_MS) {
+    const calibrationActive = calibrationStatusRef.current === "CALIBRATING";
+    if (!force && !calibrationActive && uiLastFlushRef.current !== 0 && now - uiLastFlushRef.current < UI_FLUSH_INTERVAL_MS) {
       return;
     }
     uiLastFlushRef.current = now;
@@ -795,6 +844,7 @@ export function usePostureMonitor({ isAuthenticated, userId }: HookOptions) {
 
   const pauseMonitoringForBreak = useCallback(() => {
     stopMonitoring();
+    subjectSignatureRef.current = null;
     setIsBreakMode(true);
     setFrameUi((prev) => ({
       ...prev,
@@ -810,6 +860,14 @@ export function usePostureMonitor({ isAuthenticated, userId }: HookOptions) {
       setError("Start monitoring first, then run calibration.");
       return;
     }
+
+    const latestLandmarks = latestLandmarksRef.current;
+    const signature = latestLandmarks ? buildSubjectSignature(latestLandmarks) : null;
+    if (!signature) {
+      setError("No subject detected. Sit in frame before calibration.");
+      return;
+    }
+    subjectSignatureRef.current = signature;
 
     calibrationPhaseRef.current = "SCANNING";
     calibrationPhaseStartedAtRef.current = performance.now();
@@ -1022,6 +1080,7 @@ export function usePostureMonitor({ isAuthenticated, userId }: HookOptions) {
     }
 
     sessionActiveRef.current = false;
+    subjectSignatureRef.current = null;
     setIsSessionActive(false);
     currentSessionIdRef.current = null;
     sessionStartedAtRef.current = null;
@@ -1116,11 +1175,11 @@ export function usePostureMonitor({ isAuthenticated, userId }: HookOptions) {
         tips: DEFAULT_TIPS
       }));
       overlayMetricsLastPushRef.current = null;
-      if (calibrationStatus !== "CALIBRATED") {
+      if (calibrationStatusRef.current !== "CALIBRATED") {
         setCalibrationPhase("IDLE");
       }
       setCalibrationCountdown(null);
-      if (calibrationStatus !== "CALIBRATING") {
+      if (calibrationStatusRef.current !== "CALIBRATING") {
         setCalibrationProgress(0);
       }
 
@@ -1144,8 +1203,12 @@ export function usePostureMonitor({ isAuthenticated, userId }: HookOptions) {
         const now = performance.now();
         const result = pose.detectForVideo(videoEl, now);
         const landmarks = result.landmarks[0];
+        const subjectSignature = subjectSignatureRef.current;
+        const subjectMatch = landmarks
+          ? !subjectSignature || matchesSubjectSignature(landmarks, subjectSignature)
+          : false;
 
-        if (!landmarks) {
+        if (!landmarks || !subjectMatch) {
           latestLandmarksRef.current = null;
           smoothedMetricsRef.current = null;
           smoothedExtrasRef.current = null;
@@ -1165,7 +1228,7 @@ export function usePostureMonitor({ isAuthenticated, userId }: HookOptions) {
             state: nextState,
             score: 0,
             metrics: FALLBACK_METRICS,
-            tips: NO_PERSON_TIPS,
+            tips: subjectSignature ? ["Locked subject moved out of frame. Return to your calibrated position."] : NO_PERSON_TIPS,
             trackingConfidence: 0,
             trackingStable: false,
             dominantIssue: null,
@@ -1215,7 +1278,7 @@ export function usePostureMonitor({ isAuthenticated, userId }: HookOptions) {
         smoothedMetricsRef.current = smoothedRawMetrics;
         smoothedExtrasRef.current = smoothedRawExtras;
 
-        if (calibrationStatus === "CALIBRATING") {
+        if (calibrationStatusRef.current === "CALIBRATING") {
           const phaseStartedAt = calibrationPhaseStartedAtRef.current ?? now;
           const elapsed = now - phaseStartedAt;
 
