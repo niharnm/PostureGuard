@@ -100,6 +100,8 @@ Notes:
 - Production deployments (including Vercel) must use PostgreSQL. SQLite local files are not reliable for serverless functions.
 - For local development, use a Postgres instance (Docker, Neon, Supabase, Railway, etc.) and point `DATABASE_URL` to it.
 - Leave Google vars empty if you only want email/password auth.
+- For Google OAuth, create a Google Cloud OAuth client and add the exact NextAuth callback URL: `http://localhost:3000/api/auth/callback/google` for local development, plus your production callback URL `https://your-domain/api/auth/callback/google`.
+- If Google shows "you don't have permission to sign in", the OAuth consent screen is usually still restricted. Use an `External` app, add your Google account under `Test users`, or publish the app.
 - `OPENROUTER_API_KEY` is required for Victor responses.
 - API keys are server-side only (`/api/victor`), never exposed in frontend code.
 
@@ -126,10 +128,14 @@ Open [http://localhost:3000](http://localhost:3000)
    - `NEXTAUTH_URL` to your production domain (for example: `https://your-app.vercel.app`)
    - `NEXTAUTH_SECRET`
    - any optional OAuth/OpenRouter keys you use
-3. Push schema to the production database:
+3. In Google Cloud Console, make sure the OAuth client allows:
+   - Authorized JavaScript origin: your app origin, for example `https://your-app.vercel.app`
+   - Authorized redirect URI: `https://your-app.vercel.app/api/auth/callback/google`
+   - OAuth consent screen user type: `External`, with the intended accounts added as test users until the app is published
+4. Push schema to the production database:
    - locally with production `DATABASE_URL`: `npm run prisma:generate && npm run db:push`
-4. Deploy to Vercel.
-5. After deploy, verify signup/login and session persistence in production.
+5. Deploy to Vercel.
+6. After deploy, verify signup/login and session persistence in production.
 
 ## Posture Accuracy Improvements
 

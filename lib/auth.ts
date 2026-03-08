@@ -20,6 +20,7 @@ if ((googleClientId && !googleClientSecret) || (!googleClientId && googleClientS
 
 export const authOptions: NextAuthOptions = {
   secret: nextAuthSecret,
+  trustHost: true,
   session: {
     strategy: "jwt"
   },

@@ -2,12 +2,14 @@
 
 import { getProviders, signIn, signOut, useSession } from "next-auth/react";
 import { FormEvent, useEffect, useState } from "react";
+import { useSearchParams } from "next/navigation";
 import { Ban } from "lucide-react";
 
 type AuthMode = "login" | "signup";
 
 export function AuthPanel() {
   const { data: session, status } = useSession();
+  const searchParams = useSearchParams();
   const [googleEnabled, setGoogleEnabled] = useState(false);
   const [mode, setMode] = useState<AuthMode>("login");
   const [email, setEmail] = useState("");
@@ -15,6 +17,27 @@ export function AuthPanel() {
   const [name, setName] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
+
+  useEffect(() => {
+    const authError = searchParams.get("error");
+    if (!authError) return;
+
+    switch (authError) {
+      case "AccessDenied":
+        setError(
+          "Google sign-in is blocked by the Google OAuth app configuration. Set the consent screen to External and add your account as a test user, or publish the app."
+        );
+        break;
+      case "OAuthSignin":
+      case "OAuthCallback":
+      case "OAuthCreateAccount":
+        setError("Google sign-in is misconfigured. Verify the Google client ID, client secret, and callback URL.");
+        break;
+      default:
+        setError("Google sign-in failed. Check the OAuth configuration and try again.");
+        break;
+    }
+  }, [searchParams]);
 
   useEffect(() => {
     let active = true;
@@ -167,7 +190,7 @@ export function AuthPanel() {
       <div className="mt-3 flex flex-wrap items-center gap-3">
         <div className="relative">
           <button
-            onClick={() => signIn("google")}
+            onClick={() => signIn("google", { callbackUrl: "/" })}
             disabled={!googleEnabled}
             aria-disabled={!googleEnabled}
             className="rounded-xl border border-slate-600/50 px-4 py-2 text-sm text-slate-200 disabled:cursor-not-allowed disabled:opacity-40"
