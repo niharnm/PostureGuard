@@ -11,7 +11,7 @@ function stateStyle(state: PostureState) {
   if (state === "GOOD") return "bg-emerald-400/90";
   if (state === "WARN") return "bg-amber-300/90";
   if (state === "BAD") return "bg-rose-400/90";
-  return "bg-slate-600/80";
+  return "bg-violet-400/80";
 }
 
 function legendDot(label: string, className: string) {
@@ -55,6 +55,7 @@ function PostureHeatmapTimelineBase({ timeline }: Props) {
         {legendDot("Good", "bg-emerald-400")}
         {legendDot("Warning", "bg-amber-300")}
         {legendDot("Bad", "bg-rose-400")}
+        {legendDot("Break / No Person", "bg-violet-400")}
       </div>
     </section>
   );

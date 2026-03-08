@@ -29,25 +29,27 @@ const normalizePenalty = (value: number, low: number, high: number) =>
   clamp((value - low) / Math.max(0.0001, high - low), 0, 1);
 
 const ISSUE_LABELS: Record<keyof PostureMetrics, string> = {
-  forwardHeadOffset: "Forward head posture",
+  forwardHeadOffset: "Forward Head",
   shoulderImbalance: "Shoulder imbalance",
   headTilt: "Head tilt",
-  torsoLean: "Torso lean"
+  torsoLean: "Torso Lean"
 };
 
 const METRIC_WEIGHTS: Record<keyof PostureMetrics, number> = {
-  forwardHeadOffset: 0.36,
-  shoulderImbalance: 0.22,
-  headTilt: 0.18,
-  torsoLean: 0.24
+  forwardHeadOffset: 0.42,
+  shoulderImbalance: 0.16,
+  headTilt: 0.12,
+  torsoLean: 0.3
 };
 
 const DEVIATION_BANDS: Record<keyof PostureMetrics, { low: number; moderate: number; high: number }> = {
-  forwardHeadOffset: { low: 0.03, moderate: 0.075, high: 0.14 },
-  shoulderImbalance: { low: 0.02, moderate: 0.055, high: 0.1 },
-  headTilt: { low: 0.02, moderate: 0.05, high: 0.095 },
-  torsoLean: { low: 0.025, moderate: 0.065, high: 0.13 }
+  forwardHeadOffset: { low: 0.024, moderate: 0.06, high: 0.115 },
+  shoulderImbalance: { low: 0.016, moderate: 0.044, high: 0.085 },
+  headTilt: { low: 0.016, moderate: 0.04, high: 0.078 },
+  torsoLean: { low: 0.02, moderate: 0.052, high: 0.105 }
 };
+
+const safeZ = (point?: Landmark) => (point && typeof point.z === "number" && Number.isFinite(point.z) ? point.z : 0);
 
 function severityFromDeviation(
   metric: keyof PostureMetrics,
@@ -56,20 +58,20 @@ function severityFromDeviation(
   const { low, moderate, high } = DEVIATION_BANDS[metric];
   if (deviation <= low) {
     return {
-      penalty: normalizePenalty(deviation, 0, low) * 0.18,
+      penalty: normalizePenalty(deviation, 0, low) * 0.28,
       severity: "low"
     };
   }
 
   if (deviation <= moderate) {
     return {
-      penalty: 0.18 + normalizePenalty(deviation, low, moderate) * 0.38,
+      penalty: 0.28 + normalizePenalty(deviation, low, moderate) * 0.44,
       severity: "moderate"
     };
   }
 
   return {
-    penalty: 0.56 + normalizePenalty(deviation, moderate, high) * 0.44,
+    penalty: 0.72 + normalizePenalty(deviation, moderate, high) * 0.28,
     severity: "high"
   };
 }
@@ -91,16 +93,31 @@ export function computeMetrics(landmarks: Landmark[]): PostureMetrics {
     Math.hypot(leftShoulder.x - rightShoulder.x, leftShoulder.y - rightShoulder.y),
     0.001
   );
+  const shoulderMidZ = (safeZ(leftShoulder) + safeZ(rightShoulder)) / 2;
+  const earMidZ = (safeZ(leftEar) + safeZ(rightEar)) / 2;
+  const noseZ = safeZ(nose);
+  const hipMidZ = leftHip && rightHip ? (safeZ(leftHip) + safeZ(rightHip)) / 2 : shoulderMidZ;
+  // For BlazePose-style z, smaller values are closer to camera. Clamp to reduce jitter sensitivity.
+  const headDepthDelta = clamp(shoulderMidZ - earMidZ, 0, 0.08);
+  const noseDepthDelta = clamp(shoulderMidZ - noseZ, 0, 0.09);
+  const torsoDepthDelta = clamp(hipMidZ - shoulderMidZ, 0, 0.1);
 
   return {
     // Normalize by shoulder width so scoring is more camera-distance independent.
-    forwardHeadOffset: Math.abs(earMidX - shoulderMidX) / shoulderWidth,
+    forwardHeadOffset:
+      (Math.abs(earMidX - shoulderMidX) * 0.45 +
+        Math.abs(nose.x - shoulderMidX) * 0.3 +
+        headDepthDelta * 0.75 +
+        noseDepthDelta * 0.95) /
+      shoulderWidth,
     shoulderImbalance: Math.abs(leftShoulder.y - rightShoulder.y) / shoulderWidth,
     headTilt: Math.abs(leftEar.y - rightEar.y) / shoulderWidth,
     torsoLean:
       (Math.abs(shoulderMidX - hipMidX) +
         Math.abs(nose.x - shoulderMidX) * 0.35 +
-        Math.abs(nose.y - shoulderMidY) * 0.1) /
+        Math.abs(nose.y - shoulderMidY) * 0.1 +
+        torsoDepthDelta * 0.85 +
+        noseDepthDelta * 0.3) /
       shoulderWidth
   };
 }
@@ -123,12 +140,15 @@ export function computeCalibrationExtras(landmarks: Landmark[]): CalibrationExtr
   const shoulderMidX = (leftShoulder.x + rightShoulder.x) / 2;
   const shoulderMidY = (leftShoulder.y + rightShoulder.y) / 2;
   const earMidX = (leftEar.x + rightEar.x) / 2;
+  const shoulderMidZ = (safeZ(leftShoulder) + safeZ(rightShoulder)) / 2;
+  const noseZ = safeZ(nose);
   const shoulderWidth = Math.max(
     Math.hypot(leftShoulder.x - rightShoulder.x, leftShoulder.y - rightShoulder.y),
     0.001
   );
 
-  const noseShoulderOffset = Math.abs(nose.x - shoulderMidX) / shoulderWidth;
+  const noseDepthDelta = clamp(shoulderMidZ - noseZ, 0, 0.09);
+  const noseShoulderOffset = (Math.abs(nose.x - shoulderMidX) + noseDepthDelta * 0.9) / shoulderWidth;
   const earShoulderCenterGap = Math.abs(earMidX - shoulderMidX) / shoulderWidth;
   const shoulderHeightDiff = Math.abs(leftShoulder.y - rightShoulder.y) / shoulderWidth;
   const earHeightDiff = Math.abs(leftEar.y - rightEar.y) / shoulderWidth;

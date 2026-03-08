@@ -4,7 +4,7 @@ const palette: Record<PostureState, string> = {
   GOOD: "bg-mint/15 text-mint border-mint/40",
   WARN: "bg-amber/15 text-amber border-amber/40",
   BAD: "bg-danger/15 text-danger border-danger/40",
-  NO_PERSON: "bg-slate-600/20 text-slate-300 border-slate-500/40"
+  NO_PERSON: "bg-violet-400/20 text-violet-100 border-violet-300/45"
 };
 
 type Props = {

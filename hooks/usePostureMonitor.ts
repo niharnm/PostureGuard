@@ -132,10 +132,10 @@ const DEFAULT_FRAME_UI: FrameUiState = {
   dominantIssue: null
 };
 const BASELINE_DEADZONE: PostureMetrics = {
-  forwardHeadOffset: 0.016,
-  shoulderImbalance: 0.012,
-  headTilt: 0.012,
-  torsoLean: 0.016
+  forwardHeadOffset: 0.01,
+  shoulderImbalance: 0.008,
+  headTilt: 0.008,
+  torsoLean: 0.01
 };
 
 const KEY_VISIBILITY_POINTS = [7, 8, 11, 12, 23, 24];
@@ -1382,7 +1382,7 @@ export function usePostureMonitor({ isAuthenticated, userId }: HookOptions) {
         const visibilityPenalty = hasBaseline
           ? clamp(deviationExtras.visibility * 20, 0, 7)
           : clamp(deviationExtras.visibility * 24, 0, 8);
-        const baselineBonus = hasBaseline ? clamp(Math.round((1 - clamp(averageDeviation(deviation) / 0.022, 0, 1)) * 4), 0, 4) : 0;
+        const baselineBonus = hasBaseline ? clamp(Math.round((1 - clamp(averageDeviation(deviation) / 0.018, 0, 1)) * 2), 0, 2) : 0;
         const rawScore = clamp(
           Math.round(scoring.rawScore - symmetryPenalty - noseOffsetPenalty - visibilityPenalty + baselineBonus),
           0,

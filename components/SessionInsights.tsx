@@ -14,7 +14,7 @@ function stateColor(state: PostureState) {
   if (state === "GOOD") return "bg-mint";
   if (state === "WARN") return "bg-amber";
   if (state === "BAD") return "bg-danger";
-  return "bg-slate-600";
+  return "bg-violet-400";
 }
 
 function SessionInsightsBase({ good, warn, bad, score, timeline }: Props) {

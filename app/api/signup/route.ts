@@ -60,8 +60,8 @@ export async function POST(request: Request) {
     const password = String(body.password ?? "");
     const name = String(body.name ?? "").trim();
 
-    if (!email || !password) {
-      return NextResponse.json({ error: "Email and password are required." }, { status: 400 });
+    if (!name || !email || !password) {
+      return NextResponse.json({ error: "Name, email, and password are required." }, { status: 400 });
     }
 
     if (password.length < 8) {
@@ -92,7 +92,7 @@ export async function POST(request: Request) {
         email: user.email,
         name: user.name
       }
-    });
+    }, { status: 201 });
   } catch (error) {
     console.error("Signup failed:", error);
 
