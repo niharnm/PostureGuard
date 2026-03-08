@@ -421,6 +421,7 @@ function averageDeviation(deviation: PostureMetrics) {
 }
 
 export function usePostureMonitor({ isAuthenticated, guestMode = false, userId }: HookOptions) {
+  const useAccountApis = isAuthenticated && Boolean(userId) && !guestMode;
   const videoRef = useRef<HTMLVideoElement | null>(null);
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const poseRef = useRef<PoseLandmarker | null>(null);
@@ -496,7 +497,7 @@ export function usePostureMonitor({ isAuthenticated, guestMode = false, userId }
   const [currentSnapshot, setCurrentSnapshot] = useState<PostureSnapshot | null>(null);
 
   const loadPersistedData = useCallback(async () => {
-    if (!isAuthenticated || !userId) {
+    if (!useAccountApis) {
       if (guestMode) {
         const guestCalibration = loadGuestCalibration();
         const guestHistory = loadGuestHistory();
@@ -580,7 +581,7 @@ export function usePostureMonitor({ isAuthenticated, guestMode = false, userId }
       const sessionsData = await sessionsRes.json();
       setSessionHistory((sessionsData.sessions ?? []) as PersistedSession[]);
     }
-  }, [guestMode, isAuthenticated, userId]);
+  }, [guestMode, useAccountApis]);
 
   useEffect(() => {
     void loadPersistedData();
@@ -1085,7 +1086,7 @@ export function usePostureMonitor({ isAuthenticated, guestMode = false, userId }
 
   const startSession = useCallback(async () => {
     try {
-      if (isAuthenticated) {
+      if (useAccountApis) {
         const res = await fetch("/api/sessions", { method: "POST" });
         if (!res.ok) throw new Error("Unable to start session.");
         const data = await res.json();
@@ -1130,7 +1131,7 @@ export function usePostureMonitor({ isAuthenticated, guestMode = false, userId }
     } catch (err) {
       setError(err instanceof Error ? err.message : "Unable to start session.");
     }
-  }, [isAuthenticated]);
+  }, [useAccountApis]);
 
   const endSession = useCallback(async () => {
     const sessionId = currentSessionIdRef.current;
@@ -1151,7 +1152,7 @@ export function usePostureMonitor({ isAuthenticated, guestMode = false, userId }
     const feedback = feedbackFromSession(finalStats.sessionScore, badRatio, headTiltAvg);
 
     try {
-      if (isAuthenticated) {
+      if (useAccountApis) {
         const res = await fetch(`/api/sessions/${sessionId}`, {
           method: "PATCH",
           headers: { "Content-Type": "application/json" },
@@ -1217,7 +1218,7 @@ export function usePostureMonitor({ isAuthenticated, guestMode = false, userId }
       worstMoment: worstMomentRef.current,
       feedback
     });
-  }, [getSessionElapsedMs, guestMode, isAuthenticated, stopMonitoring]);
+  }, [getSessionElapsedMs, guestMode, stopMonitoring, useAccountApis]);
 
   const dismissSessionSummary = useCallback(() => {
     setSessionSummary(null);
