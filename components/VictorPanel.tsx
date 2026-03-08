@@ -22,6 +22,7 @@ type Message = {
 
 type Props = {
   context: VictorContextPayload;
+  guestMode?: boolean;
 };
 
 const SUGGESTED_PROMPTS = [
@@ -36,7 +37,7 @@ const AVATARS = {
   ai: "https://images.unsplash.com/photo-1494790108377-be9c29b29330?w=64&h=64&q=80&crop=faces&fit=crop"
 };
 
-function VictorPanelBase({ context }: Props) {
+function VictorPanelBase({ context, guestMode = false }: Props) {
   const [messages, setMessages] = useState<Message[]>([
     {
       id: 1,
@@ -72,7 +73,7 @@ function VictorPanelBase({ context }: Props) {
       const res = await fetch("/api/victor", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ question, context })
+        body: JSON.stringify({ question, context, guestMode })
       });
 
       if (!res.ok) {
@@ -182,6 +183,9 @@ function VictorPanelBase({ context }: Props) {
         <p className="mt-2 text-xs text-muted-foreground">
           Victor is a posture coach, not a medical professional. He only answers using your app data.
         </p>
+        {guestMode ? (
+          <p className="mt-1 text-xs text-muted-foreground">Guest mode: Victor uses your live temporary session data.</p>
+        ) : null}
       </ExpandableChatFooter>
     </ExpandableChat>
   );

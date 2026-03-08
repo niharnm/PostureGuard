@@ -22,15 +22,25 @@ import { PoseMetricsCard } from "@/components/PoseMetricsCard";
 import { usePostureMonitor } from "@/hooks/usePostureMonitor";
 import { useArduinoSerial } from "@/hooks/useArduinoSerial";
 import { useVoiceCoach } from "@/hooks/useVoiceCoach";
+import { clearGuestMode, enableGuestMode, hasGuestModeSession } from "@/lib/guest-mode";
 import { formatDuration } from "@/lib/posture";
 
 export default function HomePage() {
   const { data: session, status } = useSession();
   const authenticated = status === "authenticated";
-  const [demoMode, setDemoMode] = useState(false);
+  const [guestMode, setGuestMode] = useState(false);
+
+  useEffect(() => {
+    if (!authenticated && hasGuestModeSession()) {
+      setGuestMode(true);
+    }
+  }, [authenticated]);
+
+  const accessGranted = authenticated || guestMode;
 
   const monitor = usePostureMonitor({
     isAuthenticated: authenticated,
+    guestMode,
     userId: session?.user?.id
   });
   const arduino = useArduinoSerial();
@@ -71,16 +81,24 @@ export default function HomePage() {
 
   useEffect(() => {
     if (authenticated) {
-      setDemoMode(false);
+      clearGuestMode();
+      setGuestMode(false);
     }
   }, [authenticated]);
 
-  const inDashboard = useMemo(() => authenticated || demoMode, [authenticated, demoMode]);
+  const inDashboard = useMemo(() => accessGranted, [accessGranted]);
 
-  const enterDemoMode = useCallback(() => {
-    setDemoMode(true);
+  const enterGuestMode = useCallback(() => {
+    enableGuestMode();
+    setGuestMode(true);
     void monitor.startMonitoring();
   }, [monitor.startMonitoring]);
+
+  const exitGuestMode = useCallback(() => {
+    clearGuestMode();
+    setGuestMode(false);
+    monitor.resetExperience();
+  }, [monitor.resetExperience]);
 
   if (status === "loading") {
     return (
@@ -91,24 +109,24 @@ export default function HomePage() {
   }
 
   if (!inDashboard) {
-    return <LandingPage onTryDemo={enterDemoMode} />;
+    return <LandingPage onTryDemo={enterGuestMode} />;
   }
 
   return (
     <main className="min-h-screen">
       <div className="mx-auto flex w-full max-w-7xl flex-col gap-8 px-4 py-8 sm:px-6 sm:py-10 lg:px-8">
         <Hero onStart={monitor.startMonitoring} />
-        {demoMode ? (
+        {guestMode ? (
           <section className="panel rounded-3xl p-5 sm:p-6">
             <div className="flex flex-wrap items-center justify-between gap-3">
               <div>
-                <p className="text-xs uppercase tracking-[0.2em] text-slate-400">Demo Mode</p>
+                <p className="text-xs uppercase tracking-[0.2em] text-slate-400">Guest Mode</p>
                 <p className="text-sm text-slate-200">
-                  No login required. Session history and calibration persistence are disabled.
+                  Best for demos. Dashboard access is fully unlocked, but guest data stays temporary on this device.
                 </p>
               </div>
               <button
-                onClick={() => setDemoMode(false)}
+                onClick={exitGuestMode}
                 className="rounded-xl border border-slate-600/50 px-4 py-2 text-sm text-slate-200"
               >
                 Back to Landing
@@ -116,9 +134,10 @@ export default function HomePage() {
             </div>
           </section>
         ) : null}
-        <AuthPanel />
+        <AuthPanel guestActive={guestMode} onEnterGuestMode={enterGuestMode} onExitGuestMode={exitGuestMode} />
         <SessionControls
-          authenticated={authenticated}
+          authenticated={accessGranted}
+          temporaryMode={guestMode}
           active={monitor.isSessionActive}
           monitoringActive={monitor.cameraReady}
           breakMode={monitor.isBreakMode}
@@ -162,7 +181,8 @@ export default function HomePage() {
             scoreTrend={monitor.scoreTrend}
             onCalibrate={monitor.beginCalibration}
             onDebugEnabledChange={monitor.setDebugEnabled}
-            canCalibrate={authenticated}
+            canCalibrate={accessGranted}
+            temporaryMode={guestMode}
             warningBanner={monitor.alertBanner}
             overlayMetrics={monitor.overlayMetrics}
           />
@@ -197,8 +217,15 @@ export default function HomePage() {
             />
           </div>
 
-          {authenticated ? (
-            <SessionHistoryPanel sessions={monitor.sessionHistory} />
+          {accessGranted ? (
+            <section className="space-y-3">
+              {guestMode ? (
+                <p className="text-xs text-slate-400">
+                  Guest mode: session history is temporary and stored only in this browser.
+                </p>
+              ) : null}
+              <SessionHistoryPanel sessions={monitor.sessionHistory} />
+            </section>
           ) : (
             <section className="panel rounded-3xl p-5 sm:p-6">
               <h2 className="text-lg font-semibold text-white">Sign In For Full Dashboard</h2>
@@ -208,7 +235,7 @@ export default function HomePage() {
             </section>
           )}
 
-          <VictorPanel context={monitor.victorContext} />
+          <VictorPanel context={monitor.victorContext} guestMode={guestMode} />
 
           <MetricsExplanation />
 

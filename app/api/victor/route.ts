@@ -66,16 +66,18 @@ const OUT_OF_SCOPE =
   "I can help with your posture scores, sessions, calibration, and improvement tips.";
 
 export async function POST(request: Request) {
-  const userId = await getSessionUserId();
-  if (!userId) {
-    return NextResponse.json(
-      { error: "Unauthorized. Sign in to use Victor." },
-      { status: 401 }
-    );
-  }
-
   try {
     const payload = await request.json();
+    const guestMode = Boolean(payload?.guestMode);
+    const userId = guestMode ? "guest" : await getSessionUserId();
+
+    if (!userId) {
+      return NextResponse.json(
+        { error: "Unauthorized. Sign in to use Victor." },
+        { status: 401 }
+      );
+    }
+
     const question = String(payload?.question ?? "").trim().slice(0, 500);
 
     if (!question) {

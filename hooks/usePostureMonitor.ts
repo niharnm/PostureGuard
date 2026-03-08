@@ -32,11 +32,18 @@ import {
   TrendPoint,
   VictorContextPayload
 } from "@/lib/types";
+import {
+  loadGuestCalibration,
+  loadGuestHistory,
+  saveGuestCalibration,
+  saveGuestHistory
+} from "@/lib/guest-mode";
 
 type ModelStatus = "IDLE" | "LOADING" | "READY" | "ERROR";
 
 type HookOptions = {
   isAuthenticated: boolean;
+  guestMode?: boolean;
   userId?: string;
 };
 
@@ -413,7 +420,7 @@ function averageDeviation(deviation: PostureMetrics) {
   ) / 4;
 }
 
-export function usePostureMonitor({ isAuthenticated, userId }: HookOptions) {
+export function usePostureMonitor({ isAuthenticated, guestMode = false, userId }: HookOptions) {
   const videoRef = useRef<HTMLVideoElement | null>(null);
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const poseRef = useRef<PoseLandmarker | null>(null);
@@ -488,6 +495,35 @@ export function usePostureMonitor({ isAuthenticated, userId }: HookOptions) {
 
   const loadPersistedData = useCallback(async () => {
     if (!isAuthenticated || !userId) {
+      if (guestMode) {
+        const guestCalibration = loadGuestCalibration();
+        const guestHistory = loadGuestHistory();
+
+        if (guestCalibration) {
+          personalBaselineRef.current = {
+            posture: guestCalibration.posture,
+            extras: {
+              noseShoulderOffset: guestCalibration.posture.forwardHeadOffset,
+              upperBodySymmetry: 1 - clamp(guestCalibration.posture.shoulderImbalance * 2.8 + guestCalibration.posture.headTilt * 2.3, 0, 1),
+              visibility: 0.8
+            },
+            quality: guestCalibration.quality,
+            calibratedAt: guestCalibration.calibratedAt
+          };
+          setCalibrationStatus("CALIBRATED");
+          setCalibrationMessage("Guest calibration restored from this browser.");
+          setCalibratedAt(guestCalibration.calibratedAt);
+        } else {
+          personalBaselineRef.current = null;
+          setCalibrationStatus("NOT_CALIBRATED");
+          setCalibrationMessage("Guest mode: calibration works for this session and stays temporary.");
+          setCalibratedAt(null);
+        }
+
+        setSessionHistory(guestHistory);
+        return;
+      }
+
       personalBaselineRef.current = null;
       setCalibrationStatus("NOT_CALIBRATED");
       setCalibrationMessage("Calibration is available for this session. Log in to save it to your account.");
@@ -542,7 +578,7 @@ export function usePostureMonitor({ isAuthenticated, userId }: HookOptions) {
       const sessionsData = await sessionsRes.json();
       setSessionHistory((sessionsData.sessions ?? []) as PersistedSession[]);
     }
-  }, [isAuthenticated, userId]);
+  }, [guestMode, isAuthenticated, userId]);
 
   useEffect(() => {
     void loadPersistedData();
@@ -1018,27 +1054,33 @@ export function usePostureMonitor({ isAuthenticated, userId }: HookOptions) {
         setCalibrationMessage("Calibration complete - your baseline is now active for this session.");
       }
     } else {
-      setCalibrationMessage("Calibration complete - your baseline is now active for this demo session.");
+      if (guestMode) {
+        saveGuestCalibration({
+          posture: postureBaseline,
+          quality,
+          calibratedAt: nextBaseline.calibratedAt
+        });
+      }
+      setCalibrationMessage("Calibration complete - your baseline is now active for this guest session.");
     }
 
     setFrameUi((prev) => ({
       ...prev,
       tips: ["Baseline active. Current posture is now compared against your calibrated posture."]
     }));
-  }, [captureSnapshot, isAuthenticated]);
+  }, [captureSnapshot, guestMode, isAuthenticated]);
 
   const startSession = useCallback(async () => {
-    if (!isAuthenticated) {
-      setError("Log in to start tracked sessions.");
-      return;
-    }
-
     try {
-      const res = await fetch("/api/sessions", { method: "POST" });
-      if (!res.ok) throw new Error("Unable to start session.");
-      const data = await res.json();
+      if (isAuthenticated) {
+        const res = await fetch("/api/sessions", { method: "POST" });
+        if (!res.ok) throw new Error("Unable to start session.");
+        const data = await res.json();
+        currentSessionIdRef.current = data.session.id;
+      } else {
+        currentSessionIdRef.current = `guest-${Date.now()}`;
+      }
 
-      currentSessionIdRef.current = data.session.id;
       sessionStartedAtRef.current = Date.now();
       sessionActiveRef.current = true;
       setIsSessionActive(true);
@@ -1066,7 +1108,7 @@ export function usePostureMonitor({ isAuthenticated, userId }: HookOptions) {
           ? ["Session started. Keep your ears aligned over your shoulders for best score."]
           : [
               "Session started. For best accuracy, run Calibrate Posture first.",
-              "You can still continue in demo mode without calibration."
+              "You can still continue in guest mode without calibration."
             ]
       }));
     } catch (err) {
@@ -1091,22 +1133,39 @@ export function usePostureMonitor({ isAuthenticated, userId }: HookOptions) {
     const feedback = feedbackFromSession(finalStats.sessionScore, badRatio, headTiltAvg);
 
     try {
-      const res = await fetch(`/api/sessions/${sessionId}`, {
-        method: "PATCH",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
+      if (isAuthenticated) {
+        const res = await fetch(`/api/sessions/${sessionId}`, {
+          method: "PATCH",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            timeGoodMs: finalStats.goodMs,
+            timeWarnMs: finalStats.warnMs,
+            timeBadMs: finalStats.badMs,
+            score: finalStats.sessionScore
+          })
+        });
+
+        if (!res.ok) throw new Error("Unable to finalize session.");
+
+        const payload = await res.json();
+        const completed = payload.session as PersistedSession;
+        setSessionHistory((prev) => [completed, ...prev].slice(0, 25));
+      } else {
+        const completed: PersistedSession = {
+          id: sessionId,
+          startTime: new Date(startedAt).toISOString(),
+          endTime: new Date(endedAt).toISOString(),
           timeGoodMs: finalStats.goodMs,
           timeWarnMs: finalStats.warnMs,
           timeBadMs: finalStats.badMs,
           score: finalStats.sessionScore
-        })
-      });
-
-      if (!res.ok) throw new Error("Unable to finalize session.");
-
-      const payload = await res.json();
-      const completed = payload.session as PersistedSession;
-      setSessionHistory((prev) => [completed, ...prev].slice(0, 25));
+        };
+        setSessionHistory((prev) => {
+          const nextHistory = [completed, ...prev].slice(0, 25);
+          if (guestMode) saveGuestHistory(nextHistory);
+          return nextHistory;
+        });
+      }
     } catch (err) {
       setError(err instanceof Error ? err.message : "Unable to save session.");
     }
@@ -1130,7 +1189,7 @@ export function usePostureMonitor({ isAuthenticated, userId }: HookOptions) {
       worstMoment: worstMomentRef.current,
       feedback
     });
-  }, []);
+  }, [guestMode, isAuthenticated]);
 
   const dismissSessionSummary = useCallback(() => {
     setSessionSummary(null);
@@ -1508,6 +1567,20 @@ export function usePostureMonitor({ isAuthenticated, userId }: HookOptions) {
     await startMonitoring();
   }, [startMonitoring]);
 
+  const resetExperience = useCallback(() => {
+    stopMonitoring();
+    sessionActiveRef.current = false;
+    currentSessionIdRef.current = null;
+    sessionStartedAtRef.current = null;
+    subjectSignatureRef.current = null;
+    setIsBreakMode(false);
+    setIsSessionActive(false);
+    setSessionElapsedMs(0);
+    setSessionSummary(null);
+    setError(null);
+    setAlertBanner(null);
+  }, [stopMonitoring]);
+
   useEffect(() => stopMonitoring, [stopMonitoring]);
 
   useEffect(() => {
@@ -1613,6 +1686,7 @@ export function usePostureMonitor({ isAuthenticated, userId }: HookOptions) {
     stopMonitoring,
     pauseMonitoringForBreak,
     resumeMonitoringFromBreak,
+    resetExperience,
     beginCalibration,
     startSession,
     endSession,

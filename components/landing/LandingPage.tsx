@@ -24,7 +24,7 @@ export function LandingPage({ onTryDemo }: Props) {
         <ProductOverviewSection />
         <FeatureSection />
         <DemoSection onTryDemo={onTryDemo} />
-        <AccountBenefitsSection />
+        <AccountBenefitsSection onTryDemo={onTryDemo} />
         <HardwareSection />
         <VictorSection />
         <FinalCTASection onTryDemo={onTryDemo} />

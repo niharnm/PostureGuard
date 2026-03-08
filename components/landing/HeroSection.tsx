@@ -47,7 +47,7 @@ export function HeroSection({ onTryDemo }: LandingActions) {
             onClick={onTryDemo}
             className="rounded-2xl bg-gradient-to-r from-cyan-300 to-emerald-300 px-6 py-3 text-sm font-semibold text-slate-950 transition hover:scale-[1.02]"
           >
-            Try Demo
+            Continue as Guest
           </button>
           <a
             href="#auth-panel"

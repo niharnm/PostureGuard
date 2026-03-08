@@ -34,6 +34,10 @@ export const PostureGuardShowcaseDemo = () => {
             PostureGuard combines live detection, scoring, calibration, analytics, Victor insights, and optional
             Arduino alerts in one polished coaching interface.
           </p>
+          <p className="mx-auto max-w-3xl text-sm text-slate-300">
+            For students and anyone working at a laptop for hours, better posture awareness can help limit back pain,
+            neck strain, and study fatigue.
+          </p>
         </div>
       }
     >
@@ -82,6 +86,7 @@ export const PostureGuardShowcaseDemo = () => {
                 <div className="h-full w-[78%] rounded-full bg-gradient-to-r from-cyan-300 to-emerald-300" />
               </div>
               <p className="mt-2 text-xs text-slate-300">Coaching tip: Raise screen height by 2 inches.</p>
+              <p className="mt-2 text-xs text-slate-400">Small posture resets throughout a study session can protect comfort and focus.</p>
             </div>
           </article>
 

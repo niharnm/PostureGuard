@@ -13,6 +13,9 @@ export function HardwareSection() {
       <p className="mt-3 max-w-3xl text-sm text-slate-300 sm:text-base">
         PostureGuard can connect to an Arduino device for immediate physical posture feedback and timed break cues.
       </p>
+      <p className="mt-3 max-w-3xl text-sm text-slate-300">
+        This makes it easier to stay aware of posture during long reading, coding, and study sessions before discomfort builds up.
+      </p>
       <div className="mt-6 grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
         {signals.map((signal) => (
           <article key={signal.label} className="rounded-2xl border border-slate-700/60 bg-slate-900/40 p-4">

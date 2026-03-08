@@ -7,7 +7,13 @@ import { Ban } from "lucide-react";
 
 type AuthMode = "login" | "signup";
 
-export function AuthPanel() {
+type Props = {
+  guestActive?: boolean;
+  onEnterGuestMode?: () => void;
+  onExitGuestMode?: () => void;
+};
+
+export function AuthPanel({ guestActive = false, onEnterGuestMode, onExitGuestMode }: Props) {
   const { data: session, status } = useSession();
   const searchParams = useSearchParams();
   const [googleEnabled, setGoogleEnabled] = useState(false);
@@ -132,6 +138,28 @@ export function AuthPanel() {
     );
   }
 
+  if (guestActive) {
+    return (
+      <section id="auth-panel" className="panel rounded-3xl p-5 sm:p-6">
+        <div className="flex flex-wrap items-center justify-between gap-4">
+          <div>
+            <p className="text-xs uppercase tracking-[0.2em] text-slate-400">Guest Mode</p>
+            <p className="text-lg font-semibold text-white">Temporary demo session active</p>
+            <p className="text-sm text-slate-400">Data stays local to this browser and may not be saved permanently.</p>
+          </div>
+          {onExitGuestMode ? (
+            <button
+              onClick={onExitGuestMode}
+              className="rounded-xl border border-slate-500/40 bg-slate-900/50 px-4 py-2 text-sm text-slate-100"
+            >
+              Exit Guest Mode
+            </button>
+          ) : null}
+        </div>
+      </section>
+    );
+  }
+
   return (
     <section id="auth-panel" className="panel rounded-3xl p-5 sm:p-6">
       <div className="mb-4 flex items-center justify-between">
@@ -188,6 +216,15 @@ export function AuthPanel() {
       </form>
 
       <div className="mt-3 flex flex-wrap items-center gap-3">
+        {onEnterGuestMode ? (
+          <button
+            type="button"
+            onClick={onEnterGuestMode}
+            className="rounded-xl bg-gradient-to-r from-cyan-300 to-emerald-300 px-4 py-2 text-sm font-semibold text-slate-950"
+          >
+            Continue as Guest
+          </button>
+        ) : null}
         <div className="relative">
           <button
             onClick={() => signIn("google", { callbackUrl: "/" })}
@@ -204,6 +241,9 @@ export function AuthPanel() {
           ) : null}
         </div>
         <div className="flex flex-col gap-1">
+          {onEnterGuestMode ? (
+            <p className="text-xs text-cyan-100">Best for demos. Data is temporary and may not be saved permanently.</p>
+          ) : null}
           <p className="text-xs text-slate-400">
             {googleEnabled ? "Google OAuth is available." : "Currently down — will be up later"}
           </p>

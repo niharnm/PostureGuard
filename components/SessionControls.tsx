@@ -2,6 +2,7 @@
 
 type Props = {
   authenticated: boolean;
+  temporaryMode?: boolean;
   active: boolean;
   monitoringActive: boolean;
   breakMode: boolean;
@@ -15,6 +16,7 @@ type Props = {
 
 export function SessionControls({
   authenticated,
+  temporaryMode = false,
   active,
   monitoringActive,
   breakMode,
@@ -34,11 +36,16 @@ export function SessionControls({
             {authenticated
               ? active
                 ? `Session running: ${elapsedLabel}`
-                : "Start a posture session to track score history."
+                : temporaryMode
+                  ? "Start a guest session to track posture, score, and temporary local history."
+                  : "Start a posture session to track score history."
               : "Log in to save session history and calibration."}
           </p>
           {authenticated && !calibrated ? (
             <p className="mt-1 text-xs text-amber-100">For best accuracy, calibrate posture first. You can still start now.</p>
+          ) : null}
+          {temporaryMode ? (
+            <p className="mt-1 text-xs text-cyan-100">Guest mode: session and calibration data are temporary on this device.</p>
           ) : null}
           {breakMode ? (
             <p className="mt-1 text-xs text-violet-100">Break Mode Active - camera tracking paused.</p>

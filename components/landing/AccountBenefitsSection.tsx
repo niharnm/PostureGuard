@@ -8,7 +8,11 @@ const benefits = [
   "AI insights from Victor"
 ];
 
-export function AccountBenefitsSection() {
+type Props = {
+  onTryDemo: () => void;
+};
+
+export function AccountBenefitsSection({ onTryDemo }: Props) {
   return (
     <section className="grid gap-4 lg:grid-cols-[1.1fr_1fr] lg:items-start">
       <article className="landing-card rounded-[1.75rem] p-6 sm:p-8">
@@ -23,7 +27,7 @@ export function AccountBenefitsSection() {
           ))}
         </ul>
       </article>
-      <AuthPanel />
+      <AuthPanel onEnterGuestMode={onTryDemo} />
     </section>
   );
 }

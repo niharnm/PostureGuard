@@ -41,6 +41,7 @@ type Props = {
   onCalibrate: () => void;
   onDebugEnabledChange: (enabled: boolean) => void;
   canCalibrate: boolean;
+  temporaryMode?: boolean;
   warningBanner: string | null;
   overlayMetrics: SnapshotMetrics;
 };
@@ -128,6 +129,7 @@ function LiveDashboardBase({
   onCalibrate,
   onDebugEnabledChange,
   canCalibrate,
+  temporaryMode = false,
   warningBanner,
   overlayMetrics
 }: Props) {
@@ -272,8 +274,11 @@ function LiveDashboardBase({
         {calibrationStatus === "NOT_CALIBRATED" && cameraReady ? (
           <p className="mt-1 text-xs text-amber-100">For best accuracy, calibrate posture before starting a session.</p>
         ) : null}
+        {temporaryMode ? (
+          <p className="mt-1 text-xs text-cyan-200">Guest mode: calibration works now, but the baseline is only stored temporarily.</p>
+        ) : null}
         {!canCalibrate ? (
-          <p className="mt-1 text-xs text-slate-400">You can calibrate in demo mode. Sign in to save calibration for your account.</p>
+          <p className="mt-1 text-xs text-slate-400">You can calibrate in guest mode. Sign in to save calibration for your account.</p>
         ) : null}
       </div>
 

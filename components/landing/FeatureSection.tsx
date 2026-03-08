@@ -3,22 +3,22 @@ import { Activity, Gauge, History, SlidersHorizontal, Bot, Cpu } from "lucide-re
 const features = [
   {
     title: "Real-Time Posture Detection",
-    description: "Continuously analyzes webcam landmarks to detect posture quality live.",
+    description: "Continuously analyzes webcam landmarks to detect posture quality live during long study or desk sessions.",
     icon: Activity
   },
   {
     title: "Posture Score + Coaching Tips",
-    description: "Generates a clear posture score and targeted coaching guidance instantly.",
+    description: "Generates a clear posture score and targeted coaching guidance instantly to help reduce neck strain and fatigue.",
     icon: Gauge
   },
   {
     title: "Session Tracking + Analytics",
-    description: "Tracks session quality over time with understandable progress metrics.",
+    description: "Tracks session quality over time with understandable progress metrics so better posture habits can build gradually.",
     icon: History
   },
   {
     title: "Personalized Calibration",
-    description: "Adapts posture baselines per user for more reliable coaching results.",
+    description: "Adapts posture baselines per user for more reliable coaching results based on how they naturally sit to study or work.",
     icon: SlidersHorizontal
   },
   {
@@ -38,6 +38,9 @@ export function FeatureSection() {
     <section>
       <div className="mb-5">
         <p className="text-xs font-semibold uppercase tracking-[0.18em] text-cyan-200/75">Feature Highlights</p>
+        <p className="mt-2 max-w-3xl text-sm text-slate-300">
+          Healthy posture can improve comfort and concentration during long desk sessions without interrupting study flow.
+        </p>
       </div>
       <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
         {features.map(({ title, description, icon: Icon }) => (
