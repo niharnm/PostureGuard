@@ -39,7 +39,7 @@ export async function disconnectArduino(connection: ArduinoConnection) {
 }
 
 export function mapPostureToArduinoSignal(state: PostureState): ArduinoSignal | null {
-  if (state === "NO_PERSON") return "BREAK";
+  if (state === "NO_PERSON") return null;
   return state;
 }
 
