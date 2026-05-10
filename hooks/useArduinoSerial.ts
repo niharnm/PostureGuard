@@ -66,7 +66,7 @@ export function useArduinoSerial() {
         setLastSent(signal);
         setHardwareState(signal);
         setLastWriteStatus("SUCCESS");
-        setLastWriteMessage(`${source}: sent ${signal}\\n`);
+        setLastWriteMessage(`${source}: sent ${signal}`);
         setLastWriteAt(Date.now());
         setError(null);
         if (source === "AUTO") {
