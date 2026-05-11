@@ -269,3 +269,7 @@ With Arduino:
 - Webcam permission is required.
 - Web Serial is supported in Chromium-based desktop browsers.
 - OpenRouter key is required only for Victor API calls.
+
+---
+
+**README typo fix:** Corrected "PostureGaurd" to "PostureGuard" in the title and throughout the document for consistent spelling.
