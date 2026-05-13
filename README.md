@@ -1,6 +1,6 @@
-# PostureGaurd
+# PostureGuard
 
-PostureGaurd is a hackathon-ready, real-time posture coaching app built with Next.js. The `Gaurd` spelling is intentional.
+PostureGuard is a hackathon-ready, real-time posture coaching app built with Next.js. The `Guard` spelling is intentional.
 
 It now includes:
 - Stronger calibration with quality checks
@@ -197,7 +197,7 @@ Victor guardrails:
 
 ## Arduino Protocol (Official Firmware)
 
-PostureGaurd's web app is aligned to the official Arduino firmware in [`arduino/postureguard.ino`](arduino/postureguard.ino).
+PostureGuard's web app is aligned to the official Arduino firmware in [`arduino/postureguard.ino`](arduino/postureguard.ino).
 
 Serial transport contract:
 - Baud rate: `9600`
