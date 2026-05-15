@@ -273,3 +273,5 @@ With Arduino:
 ---
 
 **README typo fix:** Corrected "PostureGaurd" to "PostureGuard" in the title and throughout the document for consistent spelling.
+
+---
