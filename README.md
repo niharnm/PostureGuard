@@ -275,3 +275,5 @@ With Arduino:
 **README typo fix:** Corrected "PostureGaurd" to "PostureGuard" in the title and throughout the document for consistent spelling.
 
 ---
+
+**Added note in Local Setup step 2 to clarify that API keys are server-side only and never exposed in frontend code.**
