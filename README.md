@@ -103,7 +103,7 @@ Notes:
 - For Google OAuth, create a Google Cloud OAuth client and add the exact NextAuth callback URL: `http://localhost:3000/api/auth/callback/google` for local development, plus your production callback URL.
 - If Google OAuth shows permission errors, ensure the OAuth consent screen is set to `External`, add your Google account as a test user, or publish the app.
 - `OPENROUTER_API_KEY` is required for Victor responses.
-- API keys and secrets are server-side only and must never be exposed in frontend code or client bundles.
+- **Important:** API keys and secrets must be kept server-side only and must never be exposed in frontend code or client bundles.
 
 ### 3. Generate Prisma client and push database schema
 
