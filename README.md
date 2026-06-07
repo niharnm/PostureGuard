@@ -277,3 +277,7 @@ With Arduino:
 ---
 
 **Added note in Local Setup step 2 to clarify that API keys and secrets are server-side only and never exposed in frontend code or client bundles.**
+
+---
+
+**Added troubleshooting note in Local Setup step 2 about Google OAuth permission errors, including OAuth consent screen settings and test user addition.**
