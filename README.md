@@ -281,3 +281,7 @@ With Arduino:
 ---
 
 **Added troubleshooting note in Local Setup step 2 about Google OAuth permission errors, including OAuth consent screen settings and test user addition.**
+
+---
+
+**Added a short note in Local Setup step 4 reminding users to open the app URL in their browser after running `npm run dev`.**
