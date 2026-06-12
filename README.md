@@ -285,3 +285,7 @@ With Arduino:
 ---
 
 **Added a short note in Local Setup step 4 reminding users to open the app URL in their browser after running `npm run dev`.**
+
+---
+
+**Added explicit note in Local Setup step 1 to run `npm install` before other steps to ensure dependencies are installed.**
